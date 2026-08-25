@@ -293,8 +293,13 @@ def record_natural_contact(
             "last_seen": now,
         }
     )
-    contact["messages_seen"] = int(contact.get("messages_seen", 0) or 0) + 1
-    contact["natural_messages"] = int(contact.get("natural_messages", 0) or 0) + 1
+    seq = int(message.get("seq", 0) or 0)
+    room_seq = contact.setdefault("room_seq", {})
+    previous_seq = int(room_seq.get(room, 0) or 0)
+    if seq > previous_seq:
+        contact["messages_seen"] = int(contact.get("messages_seen", 0) or 0) + 1
+        contact["natural_messages"] = int(contact.get("natural_messages", 0) or 0) + 1
+        room_seq[room] = seq
     declared, likely = human_signal(text)
     if declared:
         contact["human_self_declared"] = True
@@ -422,8 +427,15 @@ def inspect(
     followups = int(room_state.get("followups", 0) or 0)
     last_followup = int(room_state.get("last_followup_at", 0) or 0)
 
-    if greeted and peer_seq > newest_own_seq and peer_seq > last_replied:
+    last_reply_signal = int(contact.get("last_reply_signal_seq", 0) or 0)
+    if (
+        greeted
+        and peer_seq > newest_own_seq
+        and peer_seq > last_replied
+        and peer_seq > last_reply_signal
+    ):
         contact["replies_to_love8"] = int(contact.get("replies_to_love8", 0) or 0) + 1
+        contact["last_reply_signal_seq"] = peer_seq
         set_stage(contact, "replied")
         if int(contact.get("messages_out", 0) or 0) >= 1 and int(contact.get("replies_to_love8", 0) or 0) >= 2:
             set_stage(contact, "established")
