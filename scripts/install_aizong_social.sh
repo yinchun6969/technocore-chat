@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Installs aizong Social v1.0.1 on an existing Technocore agent VPS.
+# Installs aizong Social v1.0.2 on an existing Technocore agent VPS.
 # Legacy one-click installs without DID fields are migrated automatically.
 # Existing nick, private namespace, DID/private key and Technocore data are preserved.
 
@@ -130,10 +130,30 @@ fi
 [ -n "$FP" ] || die "FP 生成失败"
 [ -n "$MAILBOX" ] || die "MAILBOX 生成失败"
 
-log "安装 aizong Social v1.0.1"
+log "安装 aizong Social v1.0.2"
 curl -fsSL "$REPO_RAW/scripts/aizong_social.py" -o "$PROGRAM"
+
+# v1.0.2 compatibility patch: Technocore only renders JSON when ?format=json is explicit.
+# Keep this installer-side patch until every existing fork has the corrected Python source.
+PROGRAM="$PROGRAM" python3 <<'PY'
+import os
+from pathlib import Path
+
+path = Path(os.environ["PROGRAM"])
+text = path.read_text(encoding="utf-8")
+old = 'f"{base}/r/{room}",'
+new = 'f"{base}/r/{room}?format=json",'
+if old not in text and new not in text:
+    raise SystemExit("signed POST target not found; refusing to install an unknown social source")
+text = text.replace(old, new, 1)
+text = text.replace('VERSION = "1.0.0"', 'VERSION = "1.0.2"', 1)
+text = text.replace('Social v1.0.0', 'Social v1.0.2', 1)
+path.write_text(text, encoding="utf-8")
+PY
+
 chmod 700 "$PROGRAM"
 python3 -m py_compile "$PROGRAM"
+grep -q '/r/{room}?format=json' "$PROGRAM" || die "JSON response patch 未生效"
 
 cat >"/etc/systemd/system/$SERVICE" <<EOF
 [Unit]
@@ -196,10 +216,11 @@ python3 "$PROGRAM" --once --dry-run
 log "启用 24/7 主动社交服务"
 systemctl daemon-reload
 systemctl enable --now "$SERVICE"
+systemctl restart "$SERVICE"
 
 sleep 2
 printf '\n==================================================\n'
-printf ' aizong Social v1.0.1 installed\n'
+printf ' aizong Social v1.0.2 installed\n'
 printf '==================================================\n'
 printf 'Agent:       %s\n' "$NICK"
 printf 'DID:         %s\n' "$DID"
