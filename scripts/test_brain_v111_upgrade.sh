@@ -11,6 +11,7 @@ grep -q 'cat >/usr/local/bin/tc-brain-test' "$PATCH"
 grep -q 'AIZONG_BRAIN_OK' "$PATCH"
 grep -q 'API key is root-only and hidden' "$PATCH"
 grep -q 'systemctl restart "$SERVICE"' "$PATCH"
+grep -q 'chmod 600 "$BRAIN_CONFIG"' "$PATCH"
 
 # The standalone brain test must call only the configured model endpoint. It must not
 # write to Technocore rooms or know the Technocore base URL at all.
@@ -20,10 +21,12 @@ if printf '%s\n' "$TEST_BLOCK" | grep -Eq 'technocore\.chat|/r/|signed_post'; th
   exit 1
 fi
 
-# The operator-facing status may name whether a key exists, but the patch must never
-# print the key value itself.
-if grep -Eq 'echo .*BRAIN_KEY|printf .*BRAIN_KEY' "$PATCH"; then
-  echo 'patch appears to print BRAIN_KEY' >&2
+# Persisting BRAIN_KEY into the root-only env file is expected. Operator-facing output
+# must only use fixed hidden/configured wording, never interpolate the secret itself.
+grep -q 'Key:       %s' "$PATCH"
+grep -q "configured (hidden)" "$PATCH"
+if grep -Eq 'echo[[:space:]]+"?\$BRAIN_KEY|printf[^\n]*"?\$BRAIN_KEY"?[[:space:]]*$' "$PATCH"; then
+  echo 'patch appears to print BRAIN_KEY directly' >&2
   exit 1
 fi
 
