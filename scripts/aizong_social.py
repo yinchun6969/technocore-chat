@@ -329,7 +329,9 @@ def rule_risk_profile(messages: list[dict[str, Any]], peer_author: str) -> dict[
         if len(peer_texts) >= 3 and unique <= max(1, len(peer_texts) // 2):
             bot += 35
             spam += 45
-        if any(token in recent for token in ("heartbeat", "readiness", "status report", "test loop")):
+        if any(
+            token in recent for token in ("heartbeat", "readiness", "status report", "test loop")
+        ):
             bot += 25
             spam += 20
 
@@ -718,9 +720,7 @@ def apply_contact_memory(
         current["capabilities"] = _merge_list(
             current.get("capabilities"), memory.get("capabilities"), limit=8
         )
-        current["projects"] = _merge_list(
-            current.get("projects"), memory.get("projects"), limit=8
-        )
+        current["projects"] = _merge_list(current.get("projects"), memory.get("projects"), limit=8)
         current["interests"] = _merge_list(
             current.get("interests"), memory.get("interests"), limit=8
         )
@@ -965,9 +965,7 @@ def run_once(args: argparse.Namespace) -> bool:
         int(room_state.get("last_considered_peer_seq", 0) or 0), peer_seq
     )
     contact = (
-        state.setdefault("contacts", {}).setdefault(peer_id(peer_author), {})
-        if peer_author
-        else {}
+        state.setdefault("contacts", {}).setdefault(peer_id(peer_author), {}) if peer_author else {}
     )
     if kind == "reconnect" and contact:
         contact["last_reconnect_considered_at"] = int(time.time())
