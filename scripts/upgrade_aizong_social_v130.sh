@@ -8,6 +8,7 @@ STATE_DIR="$AGENT_DIR/state"
 BRAIN_CONFIG="$AGENT_DIR/brain.env"
 PROGRAM="$AGENT_DIR/aizong_social.py"
 PATCHER="$AGENT_DIR/patch_aizong_social_v130.py"
+BOOTSTRAP="$AGENT_DIR/upgrade_aizong_social_v120.sh"
 SERVICE="technocore-aizong-social.service"
 DROPIN_DIR="/etc/systemd/system/$SERVICE.d"
 DROPIN="$DROPIN_DIR/30-v130-2x.conf"
@@ -17,14 +18,28 @@ warn() { printf '\n[!] %s\n' "$*"; }
 die() { printf '\n[x] %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" = "0" ] || die "请用 root 执行"
-[ -s "$PROGRAM" ] || die "找不到 $PROGRAM；请先安装 aizong Social v1.2"
+[ -s "$PROGRAM" ] || die "找不到 $PROGRAM；请先安装 aizong Social"
 [ -s "$BRAIN_CONFIG" ] || die "找不到 $BRAIN_CONFIG；请先完成 aizong Brain 配置"
 command -v python3 >/dev/null || die "python3 未安装"
 command -v curl >/dev/null || die "curl 未安装"
 command -v systemctl >/dev/null || die "systemd 未安装"
 
+# v1.1.x machines can jump straight to v1.3. First run the existing v1.2
+# state-preserving migration, then continue with the v1.3 long-context patch.
+if grep -Eq 'VERSION = "1\.1\.[0-9]+"' "$PROGRAM"; then
+  log "检测到 aizong Social v1.1.x；自动先无损迁移到 v1.2.0"
+  curl -fsSL "$REPO_RAW/scripts/upgrade_aizong_social_v120.sh" -o "$BOOTSTRAP.new"
+  bash -n "$BOOTSTRAP.new"
+  chmod 700 "$BOOTSTRAP.new"
+  mv "$BOOTSTRAP.new" "$BOOTSTRAP"
+  bash "$BOOTSTRAP"
+  grep -q 'VERSION = "1.2.0"' "$PROGRAM" || die "自动迁移到 v1.2.0 失败"
+  log "v1.2.0 中间迁移完成；继续升级 v1.3.0"
+fi
+
 if ! grep -Eq 'VERSION = "1\.(2\.0|3\.0)"' "$PROGRAM"; then
-  die "当前 aizong Social 不是 v1.2.0/v1.3.0；请先升级到 v1.2.0"
+  current="$(grep -m1 -E '^VERSION = ' "$PROGRAM" 2>/dev/null || true)"
+  die "当前 aizong Social 版本不支持直接升级：${current:-unknown}；支持 v1.1.x / v1.2.0 / v1.3.0"
 fi
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
