@@ -33,11 +33,15 @@ for PATCH in "$PATCH111" "$PATCH112"; do
   fi
 done
 
-# Secret persistence into brain.env is expected. Reject only obvious operator-facing
-# commands that would echo the actual variable value to stdout/stderr.
+# Secret persistence into chmod-600 brain.env is expected. Reject obvious direct
+# operator-facing output of the variable itself, but allow hidden configured/empty status.
 for PATCH in "$PATCH111" "$PATCH112"; do
-  if grep -Eq '^[[:space:]]*echo[[:space:]]+["'"']?\$BRAIN_KEY|^[[:space:]]*printf[[:space:]]+["'"']?%s[^>]*\$BRAIN_KEY[[:space:]]*$' "$PATCH"; then
-    echo 'patch appears to print BRAIN_KEY' >&2
+  if awk '/^[[:space:]]*echo / && /\$BRAIN_KEY/ {bad=1} END {exit bad ? 0 : 1}' "$PATCH"; then
+    echo 'patch appears to echo BRAIN_KEY' >&2
+    exit 1
+  fi
+  if awk '/^[[:space:]]*printf / && /\$BRAIN_KEY/ && $0 !~ />/ && $0 !~ /configured \(hidden\)/ {bad=1} END {exit bad ? 0 : 1}' "$PATCH"; then
+    echo 'patch appears to printf BRAIN_KEY' >&2
     exit 1
   fi
 done
