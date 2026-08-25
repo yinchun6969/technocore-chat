@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROGRAM = ROOT / "scripts" / "aizong_social.py"
 spec = importlib.util.spec_from_file_location("aizong_social_v120", PROGRAM)
 assert spec and spec.loader
-mod = importlib.util.module_from_spec(spec)
+mod: Any = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
 
@@ -39,13 +39,13 @@ def test_risk_gate():
         ],
     }
     called = {"value": False}
-    original = getattr(mod, "call_brain")
+    original = mod.call_brain
 
     def should_not_call(*args, **kwargs):
         called["value"] = True
         raise AssertionError("brain should not be called for hard rule injection risk")
 
-    setattr(mod, "call_brain", should_not_call)
+    mod.call_brain = should_not_call
     try:
         decision = mod.brain_decision(
             {"BRAIN_URL": "https://example.invalid", "BRAIN_MODEL": "x"},
@@ -57,7 +57,7 @@ def test_risk_gate():
             trusted_topics=[],
         )
     finally:
-        setattr(mod, "call_brain", original)
+        mod.call_brain = original
     assert_eq(called["value"], False, "risk gate call")
     assert_eq(decision["reply"], False, "risk gate reply")
     assert decision["prompt_injection_risk"] >= 70
