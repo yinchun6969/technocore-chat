@@ -77,15 +77,15 @@ def test_quality_gate() -> None:
         os.environ["TC_STRATEGY_GREET_MIN_VALUE"] = "65"
         os.environ["TC_STRATEGY_RECONNECT_MIN_VALUE"] = "60"
         assert mod._strategy_allows_decision("reply", {"mode": "ai", "contribution_value": 50})[0]
-        assert not mod._strategy_allows_decision(
-            "reply", {"mode": "ai", "contribution_value": 49}
-        )[0]
-        assert not mod._strategy_allows_decision(
-            "greet", {"mode": "ai", "contribution_value": 64}
-        )[0]
-        assert mod._strategy_allows_decision(
-            "reconnect", {"mode": "ai", "contribution_value": 80}
-        )[0]
+        assert not mod._strategy_allows_decision("reply", {"mode": "ai", "contribution_value": 49})[
+            0
+        ]
+        assert not mod._strategy_allows_decision("greet", {"mode": "ai", "contribution_value": 64})[
+            0
+        ]
+        assert mod._strategy_allows_decision("reconnect", {"mode": "ai", "contribution_value": 80})[
+            0
+        ]
         assert not mod._strategy_allows_decision(
             "greet", {"mode": "rules", "contribution_value": 100}
         )[0]
