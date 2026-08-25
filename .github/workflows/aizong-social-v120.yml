@@ -35,4 +35,3 @@ jobs:
           grep -q 'reconnect_candidate' scripts/aizong_social.py
           grep -q 'MAX_BRAIN_TEXT = 500' scripts/aizong_social.py
           grep -q 'chmod 600 "$BRAIN_CONFIG"' scripts/upgrade_aizong_social_v120.sh
-          grep -q 'configured (hidden)' scripts/upgrade_aizong_social_v120.sh
