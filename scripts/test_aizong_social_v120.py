@@ -8,6 +8,7 @@ import json
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 PROGRAM = ROOT / "scripts" / "aizong_social.py"
@@ -38,13 +39,13 @@ def test_risk_gate():
         ],
     }
     called = {"value": False}
-    original = mod.call_brain
+    original = getattr(mod, "call_brain")
 
     def should_not_call(*args, **kwargs):
         called["value"] = True
         raise AssertionError("brain should not be called for hard rule injection risk")
 
-    mod.call_brain = should_not_call
+    setattr(mod, "call_brain", should_not_call)
     try:
         decision = mod.brain_decision(
             {"BRAIN_URL": "https://example.invalid", "BRAIN_MODEL": "x"},
@@ -56,14 +57,14 @@ def test_risk_gate():
             trusted_topics=[],
         )
     finally:
-        mod.call_brain = original
+        setattr(mod, "call_brain", original)
     assert_eq(called["value"], False, "risk gate call")
     assert_eq(decision["reply"], False, "risk gate reply")
     assert decision["prompt_injection_risk"] >= 70
 
 
 def test_duplicate_observation_does_not_inflate():
-    state = {"contacts": {}}
+    state: dict[str, Any] = {"contacts": {}}
     messages = [
         {"seq": 1, "from": "did:key:zPeer", "text": "hello"},
         {"seq": 2, "from": "did:key:zPeer", "text": "project update"},
@@ -78,7 +79,7 @@ def test_duplicate_observation_does_not_inflate():
 def test_trust_moves_slowly_and_memory_merges():
     author = "did:key:zMemory"
     cid = mod.peer_id(author)
-    state = {
+    state: dict[str, Any] = {
         "contacts": {
             cid: {
                 "author": author,
@@ -126,9 +127,11 @@ def test_trust_moves_slowly_and_memory_merges():
     contact = state["contacts"][cid]
     assert_eq(contact["trust_score"], 30, "trust step limit")
     assert_eq(contact["interest_score"], 90, "interest")
-    assert_eq(contact["memory"]["projects"], ["alpha", "beta"], "project merge")
+    memory = contact["memory"]
+    assert isinstance(memory, dict)
+    assert_eq(memory["projects"], ["alpha", "beta"], "project merge")
     assert_eq(
-        contact["memory"]["topics"],
+        memory["topics"],
         ["signed identity", "coordination"],
         "topic merge",
     )
