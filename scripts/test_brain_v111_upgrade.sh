@@ -2,32 +2,46 @@
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PATCH="$ROOT/scripts/upgrade_aizong_brain_v111.sh"
+PATCH111="$ROOT/scripts/upgrade_aizong_brain_v111.sh"
+PATCH112="$ROOT/scripts/upgrade_aizong_brain_v112.sh"
 
-bash -n "$PATCH"
+bash -n "$PATCH111"
+bash -n "$PATCH112"
 
-grep -q '\*/v1) printf.*chat/completions' "$PATCH"
-grep -q 'cat >/usr/local/bin/tc-brain-test' "$PATCH"
-grep -q 'AIZONG_BRAIN_OK' "$PATCH"
-grep -q 'API key is root-only and hidden' "$PATCH"
-grep -q 'systemctl restart "$SERVICE"' "$PATCH"
-grep -q 'chmod 600 "$BRAIN_CONFIG"' "$PATCH"
+grep -q '\*/v1) printf.*chat/completions' "$PATCH111"
+grep -q 'cat >/usr/local/bin/tc-brain-test' "$PATCH111"
+grep -q 'AIZONG_BRAIN_OK' "$PATCH111"
+grep -q 'API key is root-only and hidden' "$PATCH111"
+grep -q 'systemctl restart "$SERVICE"' "$PATCH111"
 
-# The standalone brain test must call only the configured model endpoint. It must not
+# The v1.1.2 patch must expand completion headroom for reasoning-capable models
+# while preserving the 500-character public reply cap in the social client.
+grep -q 'BRAIN_MAX_TOKENS="768"' "$PATCH112"
+grep -q 'Completion budget:' "$PATCH112"
+grep -q 'Reasoning channel: present' "$PATCH112"
+grep -q 'final answer was truncated' "$PATCH112"
+grep -q '), 2048)' "$PATCH112"
+grep -q 'systemctl restart "$SERVICE"' "$PATCH112"
+
+# The standalone brain tests must call only the configured model endpoint. They must not
 # write to Technocore rooms or know the Technocore base URL at all.
-TEST_BLOCK="$(sed -n '/cat >\/usr\/local\/bin\/tc-brain-test/,/^EOF$/p' "$PATCH")"
-if printf '%s\n' "$TEST_BLOCK" | grep -Eq 'technocore\.chat|/r/|signed_post'; then
-  echo 'brain test unexpectedly contains a Technocore write path' >&2
-  exit 1
-fi
+for PATCH in "$PATCH111" "$PATCH112"; do
+  TEST_BLOCK="$(sed -n '/cat >\/usr\/local\/bin\/tc-brain-test/,/^EOF$/p' "$PATCH")"
+  if printf '%s\n' "$TEST_BLOCK" | grep -Eq 'technocore\.chat|/r/|signed_post'; then
+    echo 'brain test unexpectedly contains a Technocore write path' >&2
+    exit 1
+  fi
 
-# Persisting BRAIN_KEY into the root-only env file is expected. Operator-facing output
-# must only use fixed hidden/configured wording, never interpolate the secret itself.
-grep -q 'Key:       %s' "$PATCH"
-grep -q "configured (hidden)" "$PATCH"
-if grep -Eq 'echo[[:space:]]+"?\$BRAIN_KEY|printf[^\n]*"?\$BRAIN_KEY"?[[:space:]]*$' "$PATCH"; then
-  echo 'patch appears to print BRAIN_KEY directly' >&2
-  exit 1
-fi
+done
 
-printf 'brain v1.1.1 upgrade smoke: ok\n'
+# Ensure no operator-facing echo/printf emits the secret value itself. Writing it into
+# the chmod-600 config file is expected and is not a disclosure.
+for PATCH in "$PATCH111" "$PATCH112"; do
+  if grep -E '(^|[;&|[:space:]])(echo|printf)[[:space:]][^>]*\$BRAIN_KEY' "$PATCH" \
+      | grep -v "configured (hidden)"; then
+    echo 'patch appears to print BRAIN_KEY' >&2
+    exit 1
+  fi
+done
+
+printf 'brain v1.1.1/v1.1.2 upgrade smoke: ok\n'
