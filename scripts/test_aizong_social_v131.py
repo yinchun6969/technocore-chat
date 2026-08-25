@@ -8,6 +8,7 @@ import json
 import os
 import tempfile
 import urllib.error
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -121,7 +122,7 @@ def test_non_transient_http_is_not_retried() -> None:
         del request, timeout
         calls += 1
         raise urllib.error.HTTPError(
-            "https://example.invalid", 400, "bad request", hdrs=None, fp=None
+            "https://example.invalid", 400, "bad request", hdrs=Message(), fp=None
         )
 
     mod.urllib.request.urlopen = fake_urlopen
