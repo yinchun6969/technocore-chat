@@ -1,0 +1,19 @@
+name: Brain v1.1.1 repair smoke
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/upgrade_aizong_brain_v111.sh'
+      - 'scripts/test_brain_v111_upgrade.sh'
+      - '.github/workflows/brain-v111-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check Brain v1.1.1 repair
+        run: bash scripts/test_brain_v111_upgrade.sh
