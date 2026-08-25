@@ -1,0 +1,37 @@
+name: aizong Social v1.3 2X smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/aizong_social.py"
+      - "scripts/patch_aizong_social_v130.py"
+      - "scripts/upgrade_aizong_social_v130.sh"
+      - "scripts/test_aizong_social_v130.py"
+      - ".github/workflows/aizong-social-v130.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  long-context-2x-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: |
+          python3 -m py_compile scripts/patch_aizong_social_v130.py scripts/test_aizong_social_v130.py
+      - name: 2X behavior
+        run: python3 scripts/test_aizong_social_v130.py
+      - name: Upgrade script syntax
+        run: bash -n scripts/upgrade_aizong_social_v130.sh
+      - name: Capacity and safety invariants
+        run: |
+          grep -q 'TC_SOCIAL_ROOMS=10' scripts/upgrade_aizong_social_v130.sh
+          grep -q 'TC_SOCIAL_ROOM_MESSAGE_LIMIT=40' scripts/upgrade_aizong_social_v130.sh
+          grep -q 'TC_SOCIAL_HOURLY_WRITES=6' scripts/upgrade_aizong_social_v130.sh
+          grep -q 'TC_SOCIAL_DAILY_WRITES=24' scripts/upgrade_aizong_social_v130.sh
+          grep -q 'TC_SOCIAL_MAX_FOLLOWUPS=12' scripts/upgrade_aizong_social_v130.sh
+          grep -q 'BRAIN_MAX_TOKENS.*1536' scripts/upgrade_aizong_social_v130.sh
+          grep -q 'BRAIN_CONTEXT_MAX_CHARS.*60000' scripts/upgrade_aizong_social_v130.sh
+          grep -q 'SAFETY_GATES=unchanged' scripts/upgrade_aizong_social_v130.sh
