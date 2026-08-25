@@ -1,0 +1,24 @@
+name: Social brain smoke
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/aizong_social.py'
+      - 'scripts/install_aizong_social.sh'
+      - 'scripts/test_aizong_brain.py'
+      - '.github/workflows/social-brain-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: python3 -m py_compile scripts/aizong_social.py scripts/test_aizong_brain.py
+      - name: Installer syntax
+        run: bash -n scripts/install_aizong_social.sh
+      - name: Brain behavior
+        run: python3 scripts/test_aizong_brain.py
