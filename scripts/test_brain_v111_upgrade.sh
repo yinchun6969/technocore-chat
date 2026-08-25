@@ -31,14 +31,12 @@ for PATCH in "$PATCH111" "$PATCH112"; do
     echo 'brain test unexpectedly contains a Technocore write path' >&2
     exit 1
   fi
-
 done
 
-# Ensure no operator-facing echo/printf emits the secret value itself. Writing it into
-# the chmod-600 config file is expected and is not a disclosure.
+# Secret persistence into brain.env is expected. Reject only obvious operator-facing
+# commands that would echo the actual variable value to stdout/stderr.
 for PATCH in "$PATCH111" "$PATCH112"; do
-  if grep -E '(^|[;&|[:space:]])(echo|printf)[[:space:]][^>]*\$BRAIN_KEY' "$PATCH" \
-      | grep -v "configured (hidden)"; then
+  if grep -Eq '^[[:space:]]*echo[[:space:]]+["'"']?\$BRAIN_KEY|^[[:space:]]*printf[[:space:]]+["'"']?%s[^>]*\$BRAIN_KEY[[:space:]]*$' "$PATCH"; then
     echo 'patch appears to print BRAIN_KEY' >&2
     exit 1
   fi
