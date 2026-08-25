@@ -1,0 +1,39 @@
+name: aizong Social v1.4 contribution strategy smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/aizong_social.py"
+      - "scripts/patch_aizong_social_v130.py"
+      - "scripts/patch_aizong_social_v131.py"
+      - "scripts/patch_aizong_social_v140.py"
+      - "scripts/upgrade_aizong_social_v131.sh"
+      - "scripts/upgrade_aizong_social_v140.sh"
+      - "scripts/test_aizong_social_v140.py"
+      - ".github/workflows/aizong-social-v140.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contribution-strategy-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: |
+          python3 -m py_compile scripts/patch_aizong_social_v140.py scripts/test_aizong_social_v140.py
+      - name: Contribution strategy behavior
+        run: python3 scripts/test_aizong_social_v140.py
+      - name: Upgrade script syntax
+        run: bash -n scripts/upgrade_aizong_social_v140.sh
+      - name: Strategy invariants
+        run: |
+          grep -q 'TC_STRATEGY_REPLY_MIN_VALUE=50' scripts/upgrade_aizong_social_v140.sh
+          grep -q 'TC_STRATEGY_GREET_MIN_VALUE=65' scripts/upgrade_aizong_social_v140.sh
+          grep -q 'TC_STRATEGY_RECONNECT_MIN_VALUE=60' scripts/upgrade_aizong_social_v140.sh
+          grep -q 'TC_STRATEGY_ROOM_DAILY_CAP=4' scripts/upgrade_aizong_social_v140.sh
+          grep -q 'TC_STRATEGY_PEER_DAILY_CAP=3' scripts/upgrade_aizong_social_v140.sh
+          grep -q 'contribution-ledger.jsonl' scripts/upgrade_aizong_social_v140.sh
+          grep -q 'Do not optimize public behavior for faucets, airdrops' scripts/patch_aizong_social_v140.py
