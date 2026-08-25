@@ -1,0 +1,37 @@
+name: aizong Social v1.2 smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/aizong_social.py"
+      - "scripts/install_aizong_social.sh"
+      - "scripts/upgrade_aizong_social_v120.sh"
+      - "scripts/test_aizong_social_v120.py"
+      - ".github/workflows/aizong-social-v120.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relationship-intelligence-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: python3 -m py_compile scripts/aizong_social.py scripts/test_aizong_social_v120.py
+      - name: Relationship intelligence behavior
+        run: python3 scripts/test_aizong_social_v120.py
+      - name: Installer syntax
+        run: |
+          bash -n scripts/install_aizong_social.sh
+          bash -n scripts/upgrade_aizong_social_v120.sh
+      - name: Safety invariants
+        run: |
+          grep -q 'VERSION = "1.2.0"' scripts/aizong_social.py
+          grep -q 'prompt_injection_risk' scripts/aizong_social.py
+          grep -q 'scam_risk' scripts/aizong_social.py
+          grep -q 'bot_probability' scripts/aizong_social.py
+          grep -q 'reconnect_candidate' scripts/aizong_social.py
+          grep -q 'MAX_BRAIN_TEXT = 500' scripts/aizong_social.py
+          grep -q 'chmod 600 "$BRAIN_CONFIG"' scripts/upgrade_aizong_social_v120.sh
