@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Compatibility layer for Love8 Brain v2.2.1.
+"""Compatibility layer for Love8 Brain v2.2.2.
 
 Handles OpenAI-compatible providers/models that return final JSON in
 reasoning_content, choices[].text, output_text, or intermittently return an
-empty content field. All terminal failures are fail-closed to `observe`.
+empty content field. Adds configurable long read timeout and bounded retry.
+All terminal failures are fail-closed to `observe`.
 """
 from __future__ import annotations
 
 import json
+import socket
+import time
 import urllib.error
 import urllib.request
 from typing import Any
 
-VERSION = "2.2.1"
+VERSION = "2.2.2"
 
 
 def _join_content(value: Any) -> str:
@@ -78,12 +81,65 @@ def _request(url: str, headers: dict[str, str], body: dict[str, Any], timeout: i
     return raw
 
 
+def _is_timeout(exc: BaseException) -> bool:
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        return isinstance(getattr(exc, "reason", None), (TimeoutError, socket.timeout))
+    return False
+
+
+def _request_retry(
+    url: str,
+    headers: dict[str, str],
+    body: dict[str, Any],
+    timeout: int,
+    retries: int,
+) -> dict[str, Any]:
+    last: BaseException | None = None
+    for attempt in range(retries + 1):
+        try:
+            return _request(url, headers, body, timeout)
+        except BaseException as exc:
+            if not _is_timeout(exc):
+                raise
+            last = exc
+            if attempt >= retries:
+                break
+            time.sleep(min(2 ** attempt, 4))
+    assert last is not None
+    raise last
+
+
+def _fallback(reason: str, timeout: bool = False) -> dict[str, Any]:
+    out = {
+        "action": "observe",
+        "target_index": -1,
+        "bot_probability": 50,
+        "human_likelihood": 0,
+        "scam_risk": 0,
+        "conversation_quality": 0,
+        "reason": reason,
+        "topics": [],
+        "reply": "",
+        "memory_summary": "",
+    }
+    if timeout:
+        out["_compat_timeout_fallback"] = True
+    else:
+        out["_compat_empty_fallback"] = True
+    return out
+
+
 def make_chat(brain):
     """Return a drop-in replacement for love8_brain.chat()."""
 
     def compat_chat(cfg: dict[str, str], user_payload: str, timeout: int = 45) -> dict[str, Any]:
         url = brain.api_endpoint(cfg["BRAIN_API_BASE"])
-        token_cap = max(int(cfg.get("BRAIN_MAX_TOKENS", "1800") or 1800), 1200)
+        configured_timeout = int(cfg.get("BRAIN_TIMEOUT", "150") or 150)
+        effective_timeout = min(max(configured_timeout, timeout, 45), 300)
+        retries = min(max(int(cfg.get("BRAIN_RETRIES", "1") or 1), 0), 2)
+        token_cap = max(int(cfg.get("BRAIN_MAX_TOKENS", "2200") or 2200), 1200)
         base_body: dict[str, Any] = {
             "model": cfg["BRAIN_MODEL"],
             "messages": [
@@ -100,25 +156,32 @@ def make_chat(brain):
             "User-Agent": f"love8-brain-compat/{VERSION}",
         }
 
-        raw: dict[str, Any] | None = None
         try:
-            raw = _request(url, headers, base_body, timeout)
-        except urllib.error.HTTPError as exc:
-            # Some compatible endpoints reject max_tokens. Retry without it.
-            if exc.code == 400:
-                retry_body = dict(base_body)
-                retry_body.pop("max_tokens", None)
-                raw = _request(url, headers, retry_body, timeout)
-            else:
-                raise
+            try:
+                raw = _request_retry(url, headers, base_body, effective_timeout, retries)
+            except urllib.error.HTTPError as exc:
+                # Some compatible endpoints reject max_tokens. Retry without it.
+                if exc.code == 400:
+                    retry_body = dict(base_body)
+                    retry_body.pop("max_tokens", None)
+                    raw = _request_retry(url, headers, retry_body, effective_timeout, retries)
+                else:
+                    raise
+        except BaseException as exc:
+            if _is_timeout(exc):
+                return _fallback(
+                    f"provider read timeout after {effective_timeout}s; fail-closed observe",
+                    timeout=True,
+                )
+            raise
 
         parsed = _extract_with_brain(brain, raw)
         if parsed is not None:
+            parsed.setdefault("_compat_timeout", effective_timeout)
             return parsed
 
-        # Reasoning models can spend the whole first completion on hidden/visible
-        # reasoning and leave message.content empty. Retry once with a compact
-        # final-answer instruction and a larger completion budget.
+        # Reasoning models can spend the whole first completion on reasoning and
+        # leave message.content empty. Retry once with a compact JSON instruction.
         retry_messages = [
             {
                 "role": "system",
@@ -131,36 +194,31 @@ def make_chat(brain):
             "model": cfg["BRAIN_MODEL"],
             "messages": retry_messages,
             "temperature": 0.0,
-            "max_tokens": max(token_cap, 2200),
+            "max_tokens": max(token_cap, 2400),
         }
         try:
-            raw2 = _request(url, headers, retry_body, timeout)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 400:
-                retry_body.pop("max_tokens", None)
-                raw2 = _request(url, headers, retry_body, timeout)
-            else:
-                raise
+            try:
+                raw2 = _request_retry(url, headers, retry_body, effective_timeout, retries)
+            except urllib.error.HTTPError as exc:
+                if exc.code == 400:
+                    retry_body.pop("max_tokens", None)
+                    raw2 = _request_retry(url, headers, retry_body, effective_timeout, retries)
+                else:
+                    raise
+        except BaseException as exc:
+            if _is_timeout(exc):
+                return _fallback(
+                    f"provider compact retry timed out after {effective_timeout}s; fail-closed observe",
+                    timeout=True,
+                )
+            raise
 
         parsed = _extract_with_brain(brain, raw2)
         if parsed is not None:
             parsed.setdefault("_compat_retry", True)
+            parsed.setdefault("_compat_timeout", effective_timeout)
             return parsed
 
-        # Fail closed: network/API is alive but provider supplied no usable final
-        # answer. Never guess a reply or post to Technocore.
-        return {
-            "action": "observe",
-            "target_index": -1,
-            "bot_probability": 50,
-            "human_likelihood": 0,
-            "scam_risk": 0,
-            "conversation_quality": 0,
-            "reason": "provider returned no parseable final JSON; fail-closed observe",
-            "topics": [],
-            "reply": "",
-            "memory_summary": "",
-            "_compat_empty_fallback": True,
-        }
+        return _fallback("provider returned no parseable final JSON; fail-closed observe")
 
     return compat_chat
