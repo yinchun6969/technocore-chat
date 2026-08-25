@@ -1,1 +1,0 @@
-Love8 Social Agent v2 deployment scripts live on the love8-social-v2 branch.
