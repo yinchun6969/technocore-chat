@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-VERSION="2.0.0"
+VERSION="2.0.1"
 REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/yinchun6969/technocore-chat/love8-social-v2}"
 ROOT="/opt/love8-agent"; ID="$ROOT/identity"; STATE="$ROOT/state"; SOCIAL="$ROOT/social"
 MAILBOX_FILE="$ID/mailbox.txt"; CFG="$SOCIAL/config.env"
 SOCIAL_PY="$SOCIAL/love8_social.py"; MAIL_PY="$SOCIAL/love8_mailbot.py"
 SOCIAL_SVC="love8-social.service"; MAIL_SVC="love8-mailbot.service"
+MODE_FILE="$SOCIAL/runtime-mode"; PAUSE_FILE="$STATE/social-v2.paused"
+CRON_FILE="/etc/cron.d/love8-social-v2"; SOCIAL_LOG="/var/log/love8-social-v2.log"; MAIL_LOG="/var/log/love8-mailbot-v2.log"
 log(){ printf '\n[+] %s\n' "$*"; }; warn(){ printf '\n[!] %s\n' "$*"; }; die(){ printf '\n[x] %s\n' "$*" >&2; exit 1; }
 [[ ${EUID:-$(id -u)} -eq 0 ]] || die "请用 root 执行"
 [[ -d "$ROOT" ]] || die "找不到 $ROOT"
@@ -13,7 +15,7 @@ log(){ printf '\n[+] %s\n' "$*"; }; warn(){ printf '\n[!] %s\n' "$*"; }; die(){ 
 command -v love8-reply >/dev/null || die "love8-reply 不存在；先保留现有 love8 身份/回复组件"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y >/dev/null
-apt-get install -y python3 openssl curl ca-certificates >/dev/null
+apt-get install -y python3 openssl curl ca-certificates util-linux >/dev/null
 curl -fsS --max-time 15 https://technocore.chat/healthz >/dev/null || die "Technocore health check failed"
 mkdir -p "$SOCIAL" "$STATE"; chmod 700 "$SOCIAL" "$STATE"
 
@@ -75,7 +77,20 @@ PROFILE="did:$DID mailbox:$MAILBOX nick:love8 role:autonomous social agent"
 PROFILE_JSON="$(PROFILE="$PROFILE" python3 -c 'import json,os; print(json.dumps({"value":os.environ["PROFILE"]},ensure_ascii=False))')"
 curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' --data-binary "$PROFILE_JSON" "https://technocore.chat/kv/did/$FP" >/dev/null || warn "旧版 profile 路径写入失败；现有 profile 仍保留"
 
-cat >/etc/systemd/system/$SOCIAL_SVC <<EOF
+log "安装前 dry-run：只读，不发消息"
+python3 "$SOCIAL_PY" --once --dry-run
+python3 "$MAIL_PY" --once --dry-run
+
+SYSTEMD_OK=0
+if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1 && systemctl show-environment >/dev/null 2>&1; then
+  SYSTEMD_OK=1
+fi
+
+if [[ "$SYSTEMD_OK" == "1" ]]; then
+  log "检测到可用 systemd，使用 systemd 24/7 运行"
+  printf 'systemd\n' >"$MODE_FILE"; chmod 600 "$MODE_FILE"; rm -f "$CRON_FILE" "$PAUSE_FILE"
+
+  cat >/etc/systemd/system/$SOCIAL_SVC <<EOF
 [Unit]
 Description=Love8 autonomous public social agent v$VERSION
 After=network-online.target
@@ -100,7 +115,7 @@ ReadWritePaths=$ROOT
 WantedBy=multi-user.target
 EOF
 
-cat >/etc/systemd/system/$MAIL_SVC <<EOF
+  cat >/etc/systemd/system/$MAIL_SVC <<EOF
 [Unit]
 Description=Love8 signed mailbox auto-replier v$VERSION
 After=network-online.target
@@ -124,19 +139,67 @@ ReadWritePaths=$ROOT
 WantedBy=multi-user.target
 EOF
 
+  systemctl daemon-reload
+  systemctl enable --now "$SOCIAL_SVC" "$MAIL_SVC"
+  systemctl restart "$SOCIAL_SVC" "$MAIL_SVC"
+  sleep 3
+  systemctl is-active --quiet "$SOCIAL_SVC" || { journalctl -u "$SOCIAL_SVC" -n 80 --no-pager; die "public social service failed"; }
+  systemctl is-active --quiet "$MAIL_SVC" || { journalctl -u "$MAIL_SVC" -n 80 --no-pager; die "mailbot service failed"; }
+else
+  log "当前环境没有 systemd PID 1，自动切换为 cron 运行"
+  apt-get install -y cron >/dev/null
+  printf 'cron\n' >"$MODE_FILE"; chmod 600 "$MODE_FILE"; rm -f "$PAUSE_FILE"
+  rm -f "/etc/systemd/system/$SOCIAL_SVC" "/etc/systemd/system/$MAIL_SVC" 2>/dev/null || true
+  touch "$SOCIAL_LOG" "$MAIL_LOG"; chmod 640 "$SOCIAL_LOG" "$MAIL_LOG"
+
+  cat >"$CRON_FILE" <<EOF
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/5 * * * * root test -f $PAUSE_FILE || /usr/bin/flock -n /run/lock/love8-social-v2.lock /usr/bin/python3 $SOCIAL_PY --once >>$SOCIAL_LOG 2>&1
+*/3 * * * * root test -f $PAUSE_FILE || /usr/bin/flock -n /run/lock/love8-mailbot-v2.lock /usr/bin/python3 $MAIL_PY --once >>$MAIL_LOG 2>&1
+EOF
+  chmod 644 "$CRON_FILE"
+
+  if ! pgrep -x cron >/dev/null 2>&1 && ! pgrep -x crond >/dev/null 2>&1; then
+    if [[ -x /etc/init.d/cron ]]; then /etc/init.d/cron start >/dev/null 2>&1 || true; fi
+    if ! pgrep -x cron >/dev/null 2>&1 && command -v cron >/dev/null 2>&1; then cron >/dev/null 2>&1 || true; fi
+  fi
+  if ! pgrep -x cron >/dev/null 2>&1 && ! pgrep -x crond >/dev/null 2>&1; then
+    die "cron 安装成功但守护进程未启动"
+  fi
+fi
+
 cat >/usr/local/bin/love8-social-status <<EOF
 #!/usr/bin/env bash
+MODE="\$(cat $MODE_FILE 2>/dev/null || echo unknown)"
 echo '===== LOVE8 SOCIAL v$VERSION ====='
-echo "DID: $DID"; echo "FP: $FP"; echo "Mailbox: $MAILBOX"
+echo "Runtime: \$MODE"; echo "DID: $DID"; echo "FP: $FP"; echo "Mailbox: $MAILBOX"
 echo "Legacy inbox cursor: \$(cat $STATE/inbox.seq 2>/dev/null || echo none)"
 echo "Mailbot cursor: \$(cat $STATE/mailbot-v2.seq 2>/dev/null || echo none)"
-echo; systemctl --no-pager --full status $SOCIAL_SVC || true
-echo; systemctl --no-pager --full status $MAIL_SVC || true
+echo "Paused: \$([ -f $PAUSE_FILE ] && echo yes || echo no)"
+if [[ "\$MODE" == systemd ]]; then
+  echo; systemctl --no-pager --full status $SOCIAL_SVC || true
+  echo; systemctl --no-pager --full status $MAIL_SVC || true
+elif [[ "\$MODE" == cron ]]; then
+  echo; echo '=== cron daemon ==='; pgrep -a cron || pgrep -a crond || true
+  echo; echo '=== schedule ==='; cat $CRON_FILE 2>/dev/null || true
+  echo; echo '=== recent public-social log ==='; tail -n 15 $SOCIAL_LOG 2>/dev/null || true
+  echo; echo '=== recent mailbot log ==='; tail -n 15 $MAIL_LOG 2>/dev/null || true
+fi
 EOF
+
 cat >/usr/local/bin/love8-social-log <<EOF
 #!/usr/bin/env bash
-N="\${1:-80}"; echo '=== public social ==='; journalctl -u $SOCIAL_SVC -n "\$N" --no-pager; echo; echo '=== mailbox ==='; journalctl -u $MAIL_SVC -n "\$N" --no-pager
+N="\${1:-80}"; MODE="\$(cat $MODE_FILE 2>/dev/null || echo unknown)"
+if [[ "\$MODE" == systemd ]]; then
+  echo '=== public social ==='; journalctl -u $SOCIAL_SVC -n "\$N" --no-pager
+  echo; echo '=== mailbox ==='; journalctl -u $MAIL_SVC -n "\$N" --no-pager
+else
+  echo '=== public social ==='; tail -n "\$N" $SOCIAL_LOG 2>/dev/null || true
+  echo; echo '=== mailbox ==='; tail -n "\$N" $MAIL_LOG 2>/dev/null || true
+fi
 EOF
+
 cat >/usr/local/bin/love8-social-test <<EOF
 #!/usr/bin/env bash
 set -e
@@ -144,16 +207,30 @@ python3 $SOCIAL_PY --once --dry-run
 echo
 python3 $MAIL_PY --once --dry-run
 EOF
+
 cat >/usr/local/bin/love8-social-pause <<EOF
 #!/usr/bin/env bash
-systemctl stop $SOCIAL_SVC $MAIL_SVC
+MODE="\$(cat $MODE_FILE 2>/dev/null || echo unknown)"
+if [[ "\$MODE" == systemd ]]; then systemctl stop $SOCIAL_SVC $MAIL_SVC; else touch $PAUSE_FILE; chmod 600 $PAUSE_FILE; fi
 echo 'Love8 Social paused.'
 EOF
+
 cat >/usr/local/bin/love8-social-resume <<EOF
 #!/usr/bin/env bash
-systemctl start $SOCIAL_SVC $MAIL_SVC
+MODE="\$(cat $MODE_FILE 2>/dev/null || echo unknown)"
+if [[ "\$MODE" == systemd ]]; then systemctl start $SOCIAL_SVC $MAIL_SVC; else rm -f $PAUSE_FILE; fi
 echo 'Love8 Social resumed.'
 EOF
+
+cat >/usr/local/bin/love8-social-run-now <<EOF
+#!/usr/bin/env bash
+set -e
+[ ! -f $PAUSE_FILE ] || { echo 'Love8 Social is paused.'; exit 2; }
+/usr/bin/flock -n /run/lock/love8-social-v2.lock /usr/bin/python3 $SOCIAL_PY --once
+echo
+/usr/bin/flock -n /run/lock/love8-mailbot-v2.lock /usr/bin/python3 $MAIL_PY --once
+EOF
+
 cat >/usr/local/bin/love8-social-contacts <<'EOF'
 #!/usr/bin/env python3
 import json
@@ -168,25 +245,15 @@ for label,p in sources:
   print(k, 'verified='+str(v.get('verified','?')), 'human_self_declared='+str(v.get('human_self_declared',False)), 'room='+str(v.get('last_room','-')), 'in='+str(v.get('messages_in',v.get('messages_seen',0))), 'out='+str(v.get('messages_out',0)))
  print('count:',len(c)); print()
 EOF
-chmod 755 /usr/local/bin/love8-social-status /usr/local/bin/love8-social-log /usr/local/bin/love8-social-test /usr/local/bin/love8-social-pause /usr/local/bin/love8-social-resume /usr/local/bin/love8-social-contacts
+chmod 755 /usr/local/bin/love8-social-status /usr/local/bin/love8-social-log /usr/local/bin/love8-social-test /usr/local/bin/love8-social-pause /usr/local/bin/love8-social-resume /usr/local/bin/love8-social-run-now /usr/local/bin/love8-social-contacts
 
-log "安装前 dry-run：只读，不发消息"
-python3 "$SOCIAL_PY" --once --dry-run
-python3 "$MAIL_PY" --once --dry-run
-
-log "启用 24/7"
-systemctl daemon-reload
-systemctl enable --now "$SOCIAL_SVC" "$MAIL_SVC"
-systemctl restart "$SOCIAL_SVC" "$MAIL_SVC"
-sleep 3
-systemctl is-active --quiet "$SOCIAL_SVC" || { journalctl -u "$SOCIAL_SVC" -n 80 --no-pager; die "public social service failed"; }
-systemctl is-active --quiet "$MAIL_SVC" || { journalctl -u "$MAIL_SVC" -n 80 --no-pager; die "mailbot service failed"; }
-
+MODE="$(cat "$MODE_FILE")"
 cat <<EOF
 
 ============================================================
  LOVE8 SOCIAL AGENT v$VERSION READY
 ============================================================
+Runtime:        $MODE
 Public social:  scan 8 active public rooms / 5 min
 Write budget:   max 2/hour, 6/day
 Mailbox:        check every 3 min
@@ -201,6 +268,7 @@ Commands:
   love8-social-log 80
   love8-social-contacts
   love8-social-test
+  love8-social-run-now
   love8-social-pause
   love8-social-resume
 ============================================================
