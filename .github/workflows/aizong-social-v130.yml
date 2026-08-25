@@ -25,6 +25,12 @@ jobs:
         run: python3 scripts/test_aizong_social_v130.py
       - name: Upgrade script syntax
         run: bash -n scripts/upgrade_aizong_social_v130.sh
+      - name: v1.1 bootstrap contract
+        run: |
+          grep -Fq 'if grep -Eq '\''VERSION = "1\.1\.[0-9]+"'\'' "$PROGRAM"; then' scripts/upgrade_aizong_social_v130.sh
+          grep -Fq 'upgrade_aizong_social_v120.sh' scripts/upgrade_aizong_social_v130.sh
+          grep -Fq '自动先无损迁移到 v1.2.0' scripts/upgrade_aizong_social_v130.sh
+          grep -Fq '自动迁移到 v1.2.0 失败' scripts/upgrade_aizong_social_v130.sh
       - name: Capacity and safety invariants
         run: |
           grep -q 'TC_SOCIAL_ROOMS=10' scripts/upgrade_aizong_social_v130.sh
