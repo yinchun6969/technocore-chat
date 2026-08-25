@@ -74,12 +74,12 @@ def patch_source(source: str) -> str:
         '        "provenance_worthy": bool(decision.get("provenance_worthy", False)),\n'
         '        "contribution_type": _single_line(\n'
         '            str(decision.get("contribution_type", "other")), 40\n'
-        '        ),\n'
+        "        ),\n"
         '        "memory": {',
         "brain-result",
     )
 
-    helpers = r'''
+    helpers = r"""
 
 
 def _strategy_limit(name: str, default: int, low: int, high: int) -> int:
@@ -142,7 +142,9 @@ def _required_contribution_value(kind: str) -> int:
         "greet": "TC_STRATEGY_GREET_MIN_VALUE",
         "reconnect": "TC_STRATEGY_RECONNECT_MIN_VALUE",
     }
-    return _strategy_limit(env_names.get(kind, "TC_STRATEGY_REPLY_MIN_VALUE"), defaults.get(kind, 50), 0, 100)
+    return _strategy_limit(
+        env_names.get(kind, "TC_STRATEGY_REPLY_MIN_VALUE"), defaults.get(kind, 50), 0, 100
+    )
 
 
 def _strategy_allows_decision(kind: str, decision: dict[str, Any]) -> tuple[bool, str]:
@@ -164,39 +166,40 @@ def _append_contribution_ledger(path: Path, event: dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
     path.chmod(0o600)
-'''
+"""
     source = _replace_once(
         source,
         "\ndef within_write_budget(state: dict[str, Any], hourly: int, daily: int) -> bool:",
-        helpers + "\n\ndef within_write_budget(state: dict[str, Any], hourly: int, daily: int) -> bool:",
+        helpers
+        + "\n\ndef within_write_budget(state: dict[str, Any], hourly: int, daily: int) -> bool:",
         "strategy-helpers",
     )
 
     source = _replace_once(
         source,
-        '''    if reconnect is not None:\n        candidates.append(reconnect)\n\n    if not candidates:''',
-        '''    if reconnect is not None:\n        candidates.append(reconnect)\n\n    candidates = [\n        (candidate_room, candidate_action)\n        for candidate_room, candidate_action in candidates\n        if _strategy_capacity_ok(\n            state, candidate_room, str(candidate_action.get("peer_author", ""))\n        )\n    ]\n\n    if not candidates:''',
+        """    if reconnect is not None:\n        candidates.append(reconnect)\n\n    if not candidates:""",
+        """    if reconnect is not None:\n        candidates.append(reconnect)\n\n    candidates = [\n        (candidate_room, candidate_action)\n        for candidate_room, candidate_action in candidates\n        if _strategy_capacity_ok(\n            state, candidate_room, str(candidate_action.get("peer_author", ""))\n        )\n    ]\n\n    if not candidates:""",
         "candidate-capacity-filter",
     )
 
     source = _replace_once(
         source,
-        '''    apply_contact_memory(state, action, decision)\n    room_state["last_considered_peer_seq"] = max(''',
-        '''    apply_contact_memory(state, action, decision)\n    strategy_allowed, strategy_reason = _strategy_allows_decision(kind, decision)\n    if decision.get("reply", False) and not strategy_allowed:\n        decision["reply"] = False\n        decision["reason"] = strategy_reason\n    room_state["last_considered_peer_seq"] = max(''',
+        """    apply_contact_memory(state, action, decision)\n    room_state["last_considered_peer_seq"] = max(""",
+        """    apply_contact_memory(state, action, decision)\n    strategy_allowed, strategy_reason = _strategy_allows_decision(kind, decision)\n    if decision.get("reply", False) and not strategy_allowed:\n        decision["reply"] = False\n        decision["reason"] = strategy_reason\n    room_state["last_considered_peer_seq"] = max(""",
         "quality-gate",
     )
 
     source = _replace_once(
         source,
-        '''    note_write(state)\n    save_state(state_path, state)\n    log(f"sent action={kind} room={room} seq={last_seq} brain={mode}")''',
-        '''    contribution_value = _bounded_int(decision.get("contribution_value"))\n    _note_strategy_write(state, room, peer_author, kind, contribution_value)\n    ledger_event = {\n        "timestamp": now,\n        "did": did,\n        "room": room,\n        "seq": last_seq,\n        "action": kind,\n        "peer": peer_author,\n        "brain_mode": mode,\n        "contribution_value": contribution_value,\n        "provenance_worthy": bool(decision.get("provenance_worthy", False)),\n        "contribution_type": _single_line(str(decision.get("contribution_type", "other")), 40),\n        "interest": _bounded_int(decision.get("interest")),\n        "trust": _bounded_int(decision.get("trust")),\n        "bot_probability": _bounded_int(decision.get("bot_probability")),\n        "risk": max(\n            _bounded_int(decision.get("scam_risk")),\n            _bounded_int(decision.get("prompt_injection_risk")),\n            _bounded_int(decision.get("spam_probability")),\n        ),\n        "relationship_stage": str(contact.get("relationship_stage", "")) if contact else "",\n        "text": text,\n        "text_sha256": hashlib.sha256(text.encode()).hexdigest(),\n        "public_room_ref": f"{base}/r/{room}?format=json",\n    }\n    _append_contribution_ledger(Path(args.ledger), ledger_event)\n    note_write(state)\n    save_state(state_path, state)\n    log(\n        f"sent action={kind} room={room} seq={last_seq} brain={mode} "\n        f"contribution={contribution_value}"\n    )''',
+        """    note_write(state)\n    save_state(state_path, state)\n    log(f"sent action={kind} room={room} seq={last_seq} brain={mode}")""",
+        """    contribution_value = _bounded_int(decision.get("contribution_value"))\n    _note_strategy_write(state, room, peer_author, kind, contribution_value)\n    ledger_event = {\n        "timestamp": now,\n        "did": did,\n        "room": room,\n        "seq": last_seq,\n        "action": kind,\n        "peer": peer_author,\n        "brain_mode": mode,\n        "contribution_value": contribution_value,\n        "provenance_worthy": bool(decision.get("provenance_worthy", False)),\n        "contribution_type": _single_line(str(decision.get("contribution_type", "other")), 40),\n        "interest": _bounded_int(decision.get("interest")),\n        "trust": _bounded_int(decision.get("trust")),\n        "bot_probability": _bounded_int(decision.get("bot_probability")),\n        "risk": max(\n            _bounded_int(decision.get("scam_risk")),\n            _bounded_int(decision.get("prompt_injection_risk")),\n            _bounded_int(decision.get("spam_probability")),\n        ),\n        "relationship_stage": str(contact.get("relationship_stage", "")) if contact else "",\n        "text": text,\n        "text_sha256": hashlib.sha256(text.encode()).hexdigest(),\n        "public_room_ref": f"{base}/r/{room}?format=json",\n    }\n    _append_contribution_ledger(Path(args.ledger), ledger_event)\n    note_write(state)\n    save_state(state_path, state)\n    log(\n        f"sent action={kind} room={room} seq={last_seq} brain={mode} "\n        f"contribution={contribution_value}"\n    )""",
         "ledger-write",
     )
 
     source = _replace_once(
         source,
-        '''    parser.add_argument("--topics", default=os.getenv("TC_SOCIAL_TOPICS", str(DEFAULT_TOPICS)))\n    parser.add_argument("--interval",''',
-        '''    parser.add_argument("--topics", default=os.getenv("TC_SOCIAL_TOPICS", str(DEFAULT_TOPICS)))\n    parser.add_argument("--ledger", default=os.getenv("TC_SOCIAL_LEDGER", str(DEFAULT_LEDGER)))\n    parser.add_argument("--interval",''',
+        """    parser.add_argument("--topics", default=os.getenv("TC_SOCIAL_TOPICS", str(DEFAULT_TOPICS)))\n    parser.add_argument("--interval",""",
+        """    parser.add_argument("--topics", default=os.getenv("TC_SOCIAL_TOPICS", str(DEFAULT_TOPICS)))\n    parser.add_argument("--ledger", default=os.getenv("TC_SOCIAL_LEDGER", str(DEFAULT_LEDGER)))\n    parser.add_argument("--interval",""",
         "ledger-arg",
     )
 
