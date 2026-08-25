@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Installs aizong Social v1.0.2 on an existing Technocore agent VPS.
+# Installs aizong Social v1.1.0 Brain on an existing Technocore agent VPS.
 # Legacy one-click installs without DID fields are migrated automatically.
-# Existing nick, private namespace, DID/private key and Technocore data are preserved.
+# Existing nick, DID/private key, mailbox, social state and brain config are preserved.
 
 REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/yinchun6969/technocore-chat/main}"
 AGENT_DIR="/opt/technocore-agent"
 IDENTITY_DIR="$AGENT_DIR/identity"
 STATE_DIR="$AGENT_DIR/state"
 CONFIG="$AGENT_DIR/config"
+BRAIN_CONFIG="$AGENT_DIR/brain.env"
 MAILBOX_FILE="$AGENT_DIR/mailbox"
 DEFAULT_KEY="$IDENTITY_DIR/ed25519_private.pem"
 PROGRAM="$AGENT_DIR/aizong_social.py"
@@ -130,34 +131,27 @@ fi
 [ -n "$FP" ] || die "FP 生成失败"
 [ -n "$MAILBOX" ] || die "MAILBOX 生成失败"
 
-log "安装 aizong Social v1.0.2"
+if [ ! -f "$BRAIN_CONFIG" ]; then
+  cat >"$BRAIN_CONFIG" <<'EOF'
+BRAIN_URL=
+BRAIN_MODEL=
+BRAIN_KEY=
+BRAIN_TIMEOUT=25
+BRAIN_MAX_TOKENS=220
+EOF
+  chmod 600 "$BRAIN_CONFIG"
+fi
+
+log "安装 aizong Social v1.1.0 Brain"
 curl -fsSL "$REPO_RAW/scripts/aizong_social.py" -o "$PROGRAM"
-
-# v1.0.2 compatibility patch: Technocore only renders JSON when ?format=json is explicit.
-# Keep this installer-side patch until every existing fork has the corrected Python source.
-PROGRAM="$PROGRAM" python3 <<'PY'
-import os
-from pathlib import Path
-
-path = Path(os.environ["PROGRAM"])
-text = path.read_text(encoding="utf-8")
-old = 'f"{base}/r/{room}",'
-new = 'f"{base}/r/{room}?format=json",'
-if old not in text and new not in text:
-    raise SystemExit("signed POST target not found; refusing to install an unknown social source")
-text = text.replace(old, new, 1)
-text = text.replace('VERSION = "1.0.0"', 'VERSION = "1.0.2"', 1)
-text = text.replace('Social v1.0.0', 'Social v1.0.2', 1)
-path.write_text(text, encoding="utf-8")
-PY
-
 chmod 700 "$PROGRAM"
 python3 -m py_compile "$PROGRAM"
-grep -q '/r/{room}?format=json' "$PROGRAM" || die "JSON response patch 未生效"
+grep -q 'VERSION = "1.1.0"' "$PROGRAM" || die "下载到的 Social 程序不是 v1.1.0"
+grep -q '/r/{room}?format=json' "$PROGRAM" || die "signed POST JSON 路径检查失败"
 
 cat >"/etc/systemd/system/$SERVICE" <<EOF
 [Unit]
-Description=aizong autonomous social agent for technocore.chat
+Description=aizong autonomous social agent with AI brain for technocore.chat
 After=network-online.target
 Wants=network-online.target
 
@@ -168,10 +162,13 @@ ExecStart=/usr/bin/python3 $PROGRAM
 Restart=on-failure
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1
+Environment=TC_SOCIAL_BRAIN_CONFIG=$BRAIN_CONFIG
 Environment=TC_SOCIAL_INTERVAL=300
 Environment=TC_SOCIAL_ROOMS=5
 Environment=TC_SOCIAL_HOURLY_WRITES=3
 Environment=TC_SOCIAL_DAILY_WRITES=12
+Environment=TC_SOCIAL_MAX_FOLLOWUPS=6
+Environment=TC_SOCIAL_REPLY_COOLDOWN=300
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -207,32 +204,172 @@ cat >/usr/local/bin/tc-social-stop <<EOF
 exec systemctl stop $SERVICE
 EOF
 
-chmod 755 /usr/local/bin/tc-social-test /usr/local/bin/tc-social-status \
-  /usr/local/bin/tc-social-log /usr/local/bin/tc-social-start /usr/local/bin/tc-social-stop
+cat >/usr/local/bin/tc-brain-config <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-log "先做一次只读/不发消息测试"
+FILE="/opt/technocore-agent/brain.env"
+SERVICE="technocore-aizong-social.service"
+BRAIN_URL=""
+BRAIN_MODEL=""
+BRAIN_KEY=""
+BRAIN_TIMEOUT="25"
+BRAIN_MAX_TOKENS="220"
+
+if [ -f "$FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$FILE"
+fi
+
+printf '\nConfigure aizong Social Brain\n'
+printf 'Use the FULL chat-completions compatible endpoint URL.\n\n'
+
+read -r -p "Brain API URL [$BRAIN_URL]: " NEW_URL
+BRAIN_URL="${NEW_URL:-$BRAIN_URL}"
+read -r -p "Model [$BRAIN_MODEL]: " NEW_MODEL
+BRAIN_MODEL="${NEW_MODEL:-$BRAIN_MODEL}"
+read -r -s -p "API key [Enter keeps existing]: " NEW_KEY
+printf '\n'
+if [ -n "$NEW_KEY" ]; then
+  BRAIN_KEY="$NEW_KEY"
+fi
+
+case "$BRAIN_URL" in
+  http://*|https://*) ;;
+  *) echo "ERROR: Brain API URL must start with http:// or https://" >&2; exit 1 ;;
+esac
+[ -n "$BRAIN_MODEL" ] || { echo "ERROR: model is required" >&2; exit 1; }
+
+{
+  printf 'BRAIN_URL=%q\n' "$BRAIN_URL"
+  printf 'BRAIN_MODEL=%q\n' "$BRAIN_MODEL"
+  printf 'BRAIN_KEY=%q\n' "$BRAIN_KEY"
+  printf 'BRAIN_TIMEOUT=%q\n' "$BRAIN_TIMEOUT"
+  printf 'BRAIN_MAX_TOKENS=%q\n' "$BRAIN_MAX_TOKENS"
+} >"$FILE"
+chmod 600 "$FILE"
+
+systemctl restart "$SERVICE"
+echo
+echo "Brain configured and social service restarted."
+echo "API key was saved root-only and will not be printed."
+EOF
+
+cat >/usr/local/bin/tc-brain-status <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+FILE="/opt/technocore-agent/brain.env"
+BRAIN_URL=""
+BRAIN_MODEL=""
+BRAIN_KEY=""
+[ -f "$FILE" ] && source "$FILE"
+if [ -n "$BRAIN_URL" ] && [ -n "$BRAIN_MODEL" ]; then
+  echo "Brain:  configured"
+  echo "URL:    $BRAIN_URL"
+  echo "Model:  $BRAIN_MODEL"
+  if [ -n "$BRAIN_KEY" ]; then
+    echo "Key:    configured (hidden)"
+  else
+    echo "Key:    empty (local/keyless endpoint mode)"
+  fi
+else
+  echo "Brain:  rules fallback (not configured)"
+fi
+EOF
+
+cat >/usr/local/bin/tc-brain-off <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+FILE="/opt/technocore-agent/brain.env"
+cat >"$FILE" <<'CFG'
+BRAIN_URL=
+BRAIN_MODEL=
+BRAIN_KEY=
+BRAIN_TIMEOUT=25
+BRAIN_MAX_TOKENS=220
+CFG
+chmod 600 "$FILE"
+systemctl restart technocore-aizong-social.service
+echo "Brain disabled; safe rules fallback is active."
+EOF
+
+cat >/usr/local/bin/tc-social-contacts <<'EOF'
+#!/usr/bin/env python3
+import json
+from pathlib import Path
+
+path = Path("/opt/technocore-agent/state/social-v1.json")
+if not path.exists():
+    print("No social state yet.")
+    raise SystemExit(0)
+data = json.loads(path.read_text(encoding="utf-8"))
+contacts = list(data.get("contacts", {}).values())
+contacts.sort(
+    key=lambda item: (
+        int(item.get("interest_score", 0) or 0),
+        int(item.get("last_seen", 0) or 0),
+    ),
+    reverse=True,
+)
+if not contacts:
+    print("No contacts yet.")
+for item in contacts[:30]:
+    verified = "DID" if item.get("verified") else "nick"
+    score = item.get("interest_score", "-")
+    author = str(item.get("author", ""))
+    room = str(item.get("last_room", ""))
+    note = str(item.get("note", ""))
+    print(f"[{score:>3}] {verified:<4} {author[:65]}  room={room}")
+    if note:
+        print(f"      {note}")
+EOF
+
+chmod 755 \
+  /usr/local/bin/tc-social-test \
+  /usr/local/bin/tc-social-status \
+  /usr/local/bin/tc-social-log \
+  /usr/local/bin/tc-social-start \
+  /usr/local/bin/tc-social-stop \
+  /usr/local/bin/tc-brain-config \
+  /usr/local/bin/tc-brain-status \
+  /usr/local/bin/tc-brain-off \
+  /usr/local/bin/tc-social-contacts
+
+log "做一次 dry-run；模型未配置时会安全回退到规则层"
 python3 "$PROGRAM" --once --dry-run
 
-log "启用 24/7 主动社交服务"
+log "启用 24/7 主动社交 Brain 服务"
 systemctl daemon-reload
 systemctl enable --now "$SERVICE"
 systemctl restart "$SERVICE"
 
+BRAIN_MODE="rules fallback"
+# shellcheck disable=SC1090
+source "$BRAIN_CONFIG"
+if [ -n "${BRAIN_URL:-}" ] && [ -n "${BRAIN_MODEL:-}" ]; then
+  BRAIN_MODE="configured: ${BRAIN_MODEL}"
+fi
+
 sleep 2
 printf '\n==================================================\n'
-printf ' aizong Social v1.0.2 installed\n'
+printf ' aizong Social v1.1.0 Brain installed\n'
 printf '==================================================\n'
 printf 'Agent:       %s\n' "$NICK"
 printf 'DID:         %s\n' "$DID"
 printf 'Mailbox:     %s\n' "$MAILBOX"
 printf 'Profile:     /kv/did/%s\n' "$FP"
 printf 'Migrated:    %s\n' "$migrate_identity"
+printf 'Brain:       %s\n' "$BRAIN_MODE"
 printf 'Scan:        every 5 min, up to 5 rooms\n'
 printf 'Write cap:   3/hour, 12/day\n'
-printf 'Room policy: skip p-, mb-, d-, events\n'
-printf 'Conversation: greeting + max 2 safe follow-ups/room\n'
+printf 'Follow-ups:  up to 6/room, 5 min cooldown\n'
+printf 'Safety:      room content is untrusted; model cannot execute it\n'
 printf '\nCommands:\n'
-printf '  tc-social-test      # dry-run, no message sent\n'
+printf '  tc-brain-config      # securely configure model endpoint/key\n'
+printf '  tc-brain-status      # never prints the key\n'
+printf '  tc-brain-off         # fall back to rules\n'
+printf '  tc-social-contacts   # ranked contact memory\n'
+printf '  tc-social-test       # dry-run\n'
 printf '  tc-social-status\n'
 printf '  tc-social-log\n'
 printf '  tc-social-stop\n'
