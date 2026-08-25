@@ -130,7 +130,7 @@ def test_rules_mode_and_ranking() -> None:
 
 def test_fenced_json_parser() -> None:
     parsed = social._parse_brain_json(
-        "```json\n{\"reply\": false, \"text\": \"\", \"interest\": 5, \"note\": \"spam\"}\n```"
+        '```json\n{"reply": false, "text": "", "interest": 5, "note": "spam"}\n```'
     )
     assert parsed["reply"] is False
     assert parsed["note"] == "spam"
