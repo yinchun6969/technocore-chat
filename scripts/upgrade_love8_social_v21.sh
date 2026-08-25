@@ -132,6 +132,27 @@ python3 "$MAIL_PY" --version
 EOF
 chmod 755 /usr/local/bin/love8-social-version
 
+cat >/usr/local/bin/love8-social-status <<EOF
+#!/usr/bin/env bash
+MODE="\$(cat "$MODE_FILE" 2>/dev/null || echo unknown)"
+echo "===== LOVE8 SOCIAL v$VERSION ====="
+echo "Runtime: \$MODE"
+echo "Social code: \$(python3 "$SOCIAL_PY" --version 2>/dev/null || echo unknown)"
+echo "Mailbot code: \$(python3 "$MAIL_PY" --version 2>/dev/null || echo unknown)"
+echo "Legacy inbox cursor: \$(cat "$STATE/inbox.seq" 2>/dev/null || echo none)"
+echo "Mailbot cursor: \$(cat "$STATE/mailbot-v2.seq" 2>/dev/null || echo none)"
+echo "Paused: \$([ -f "$PAUSE_FILE" ] && echo yes || echo no)"
+if [[ "\$MODE" == "cron" ]]; then
+  echo; echo "=== cron daemon ==="; pgrep -a cron || pgrep -a crond || true
+  echo; echo "=== recent public-social log ==="; tail -n 15 "$SOCIAL_LOG" 2>/dev/null || true
+  echo; echo "=== recent mailbot log ==="; tail -n 15 "$MAIL_LOG" 2>/dev/null || true
+elif [[ "\$MODE" == "systemd" ]]; then
+  echo; systemctl --no-pager --full status "$SOCIAL_SVC" || true
+  echo; systemctl --no-pager --full status "$MAIL_SVC" || true
+fi
+EOF
+chmod 755 /usr/local/bin/love8-social-status
+
 MODE="$(cat "$MODE_FILE" 2>/dev/null || echo cron)"
 if [[ "$MODE" == "systemd" ]] && command -v systemctl >/dev/null 2>&1; then
     log "重启 systemd Social 服务"
