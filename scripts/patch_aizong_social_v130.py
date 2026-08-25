@@ -28,7 +28,7 @@ def patch_source(source: str) -> str:
             "docstring",
         ),
         ('VERSION = "1.2.0"', 'VERSION = "1.3.0"', "version"),
-        ('for item in raw[:20]:', 'for item in raw[:40]:', "trusted-topic-capacity"),
+        ("for item in raw[:20]:", "for item in raw[:40]:", "trusted-topic-capacity"),
         (
             'for item in action.get("messages", [])[-8:]:',
             'for item in action.get("messages", [])[-16:]:',
@@ -120,8 +120,8 @@ def patch_source(source: str) -> str:
             "room-message-limit",
         ),
         (
-            '                own_ids,\n                max_followups=args.max_followups,',
-            '                own_ids,\n                message_limit=args.message_limit,\n                max_followups=args.max_followups,',
+            "                own_ids,\n                max_followups=args.max_followups,",
+            "                own_ids,\n                message_limit=args.message_limit,\n                max_followups=args.max_followups,",
             "room-message-call",
         ),
         (
@@ -145,8 +145,8 @@ def patch_source(source: str) -> str:
             "followup-default",
         ),
         (
-            '    args.rooms = min(max(args.rooms, 1), 10)\n    args.hourly_writes = min(max(args.hourly_writes, 1), 6)\n    args.daily_writes = min(max(args.daily_writes, 1), 24)\n    args.max_followups = min(max(args.max_followups, 1), 12)',
-            '    args.rooms = min(max(args.rooms, 1), 20)\n    args.message_limit = min(max(args.message_limit, 10), 80)\n    args.hourly_writes = min(max(args.hourly_writes, 1), 12)\n    args.daily_writes = min(max(args.daily_writes, 1), 48)\n    args.max_followups = min(max(args.max_followups, 1), 24)',
+            "    args.rooms = min(max(args.rooms, 1), 10)\n    args.hourly_writes = min(max(args.hourly_writes, 1), 6)\n    args.daily_writes = min(max(args.daily_writes, 1), 24)\n    args.max_followups = min(max(args.max_followups, 1), 12)",
+            "    args.rooms = min(max(args.rooms, 1), 20)\n    args.message_limit = min(max(args.message_limit, 10), 80)\n    args.hourly_writes = min(max(args.hourly_writes, 1), 12)\n    args.daily_writes = min(max(args.daily_writes, 1), 48)\n    args.max_followups = min(max(args.max_followups, 1), 24)",
             "runtime-caps",
         ),
         (
@@ -159,8 +159,8 @@ def patch_source(source: str) -> str:
     for old, new, label in replacements:
         source = _replace_once(source, old, new, label)
 
-    context_old = '''        "recent_public_messages": messages,\n    }\n    timeout = min(max(int(brain.get("BRAIN_TIMEOUT", "25")), 5), 60)'''
-    context_new = '''        "recent_public_messages": messages,\n    }\n    user_content = json.dumps(user_context, ensure_ascii=False)\n    context_cap = min(\n        max(int(brain.get("BRAIN_CONTEXT_MAX_CHARS", "60000")), 12000), 120000\n    )\n    while len(user_content) > context_cap and len(messages) > 4:\n        messages.pop(0)\n        user_context["recent_public_messages"] = messages\n        user_content = json.dumps(user_context, ensure_ascii=False)\n    if len(user_content) > context_cap:\n        user_content = user_content[:context_cap]\n    timeout = min(max(int(brain.get("BRAIN_TIMEOUT", "25")), 5), 60)'''
+    context_old = """        "recent_public_messages": messages,\n    }\n    timeout = min(max(int(brain.get("BRAIN_TIMEOUT", "25")), 5), 60)"""
+    context_new = """        "recent_public_messages": messages,\n    }\n    user_content = json.dumps(user_context, ensure_ascii=False)\n    context_cap = min(\n        max(int(brain.get("BRAIN_CONTEXT_MAX_CHARS", "60000")), 12000), 120000\n    )\n    while len(user_content) > context_cap and len(messages) > 4:\n        messages.pop(0)\n        user_context["recent_public_messages"] = messages\n        user_content = json.dumps(user_context, ensure_ascii=False)\n    if len(user_content) > context_cap:\n        user_content = user_content[:context_cap]\n    timeout = min(max(int(brain.get("BRAIN_TIMEOUT", "25")), 5), 60)"""
     source = _replace_once(source, context_old, context_new, "context-ceiling")
     source = _replace_once(
         source,
@@ -186,7 +186,9 @@ def main() -> int:
     parser.add_argument("path", type=Path)
     args = parser.parse_args()
     changed = patch_file(args.path)
-    print(f"aizong v{TARGET_VERSION} patch {'applied' if changed else 'already present'}: {args.path}")
+    print(
+        f"aizong v{TARGET_VERSION} patch {'applied' if changed else 'already present'}: {args.path}"
+    )
     return 0
 
 
