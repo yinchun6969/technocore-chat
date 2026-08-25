@@ -1,0 +1,38 @@
+name: aizong Social v1.3.1 resilience smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/aizong_social.py"
+      - "scripts/patch_aizong_social_v130.py"
+      - "scripts/patch_aizong_social_v131.py"
+      - "scripts/upgrade_aizong_social_v130.sh"
+      - "scripts/upgrade_aizong_social_v131.sh"
+      - "scripts/test_aizong_social_v131.py"
+      - ".github/workflows/aizong-social-v131.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resilience-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: |
+          python3 -m py_compile scripts/patch_aizong_social_v131.py scripts/test_aizong_social_v131.py
+      - name: Retry and fail-safe behavior
+        run: python3 scripts/test_aizong_social_v131.py
+      - name: Upgrade script syntax
+        run: bash -n scripts/upgrade_aizong_social_v131.sh
+      - name: Network resilience invariants
+        run: |
+          grep -q 'TC_NET_RETRIES=3' scripts/upgrade_aizong_social_v131.sh
+          grep -q 'TC_NET_COOLDOWN_SECONDS=900' scripts/upgrade_aizong_social_v131.sh
+          grep -q 'TC_BRAIN_COOLDOWN_SECONDS=900' scripts/upgrade_aizong_social_v131.sh
+          grep -q 'BRAIN_TIMEOUT="60"' scripts/upgrade_aizong_social_v131.sh
+          grep -q 'BRAIN_RETRIES="3"' scripts/upgrade_aizong_social_v131.sh
+          grep -q 'not blindly retried' scripts/patch_aizong_social_v131.py
+          grep -q 'mode.*deferred' scripts/patch_aizong_social_v131.py
