@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Love8 Social v2.1.0: quality-filtered autonomous public-room social loop for technocore.chat."""
+"""Love8 Social v2.1.1: quality-filtered autonomous public-room social loop for technocore.chat."""
 from __future__ import annotations
 
 import argparse
@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 DEFAULT_CONFIG = Path("/opt/love8-agent/social/config.env")
 DEFAULT_STATE = Path("/opt/love8-agent/state/social-v2.json")
 UA = f"love8-social/{VERSION}"
@@ -27,13 +27,33 @@ HUMAN_RE = re.compile(
     r"\b(?:i\s*(?:am|'m)\s+(?:a\s+)?human|human\s+here|real\s+person)\b|我是(?:真人|人类)|真人在这",
     re.I,
 )
-LIKELY_HUMAN_RE = re.compile(
-    r"\b(?:i(?:'m| am| have|'ve| was| think| feel| need| want| built| made| run| use| tried| tested| work| working)|"
-    r"my\s+(?:server|project|repo|node|setup|account|experience)|anyone\s+(?:here|else)|"
-    r"what\s+do\s+you\s+think|does\s+anyone|can\s+someone)\b|"
-    r"(?:我在|我用|我做|我觉得|有没有人|有人吗|你觉得|我的项目|我的服务器)",
+
+# v2.1.1: "what do you think / anyone here" by itself is NOT a human signal.
+# A likely-human hint now needs first-person personal/project/experience context.
+PERSONAL_CONTEXT_RE = re.compile(
+    r"\b(?:"
+    r"i(?:'m| am)\s+(?:building|working|testing|running|using|trying|debugging|deploying|learning|stuck|having|seeing|experimenting)"
+    r"|i(?:'ve| have)\s+(?:built|made|tested|tried|been|used|run|deployed|worked|debugged|set up)"
+    r"|my\s+(?:server|project|repo|repository|node|setup|account|experience|code|agent|app|bot|validator|miner|machine|vps)"
+    r"|on\s+my\s+(?:server|machine|vps|node|setup)"
+    r")\b|"
+    r"(?:我正在|我最近在|我自己在|我用|我做了|我部署了|我测试了|我试过|我遇到|我的项目|我的服务器|我的节点|我的代码)",
     re.I,
 )
+
+GENERIC_PROMPT_RE = re.compile(
+    r"^\s*(?:"
+    r"what\s+do\s+you\s+think(?:\s+are|\s+about)?"
+    r"|what\s+are\s+(?:the\s+)?(?:biggest|main|top)"
+    r"|what\s+is\s+your\s+(?:opinion|view|take)"
+    r"|what\s+are\s+your\s+thoughts"
+    r"|how\s+do\s+you\s+(?:see|feel\s+about)"
+    r"|do\s+you\s+think"
+    r"|你觉得|你怎么看|你认为"
+    r")",
+    re.I,
+)
+
 DANGER_RE = re.compile(
     r"\b(?:sudo|curl|wget|ssh|scp|chmod|chown|systemctl|docker|rm\s+-|private key|seed phrase|mnemonic|"
     r"api[_ -]?key|password|execute|run this command|download and run)\b",
@@ -69,7 +89,13 @@ def default_state() -> dict[str, Any]:
         "rooms": {},
         "contacts": {},
         "writes": [],
-        "stats": {"noise_skipped": 0, "natural_seen": 0, "rooms_rejected": 0},
+        "stats": {
+            "noise_skipped": 0,
+            "natural_seen": 0,
+            "rooms_rejected": 0,
+            "template_cluster_messages": 0,
+            "template_clusters_rejected": 0,
+        },
     }
 
 
@@ -81,7 +107,11 @@ def load_state(path: Path) -> dict[str, Any]:
         base = default_state()
         if isinstance(data, dict):
             base.update(data)
+        stats = base.setdefault("stats", {})
+        for key, value in default_state()["stats"].items():
+            stats.setdefault(key, value)
         migrate_v21(base)
+        migrate_v211(base)
         return base
     except Exception as exc:
         log(f"WARN state reset: {exc}")
@@ -112,6 +142,25 @@ def migrate_v21(state: dict[str, Any]) -> None:
     state["v21_pruned_contacts"] = before - len(keep)
     if before:
         log(f"v2.1 contact migration: kept={len(keep)} pruned={before-len(keep)}")
+
+
+def migrate_v211(state: dict[str, Any]) -> None:
+    """Reset v2.1's overly broad likely_human inference; preserve explicit self-declarations."""
+    if state.get("v211_migrated"):
+        return
+    contacts = state.get("contacts", {})
+    reset = 0
+    if isinstance(contacts, dict):
+        for contact in contacts.values():
+            if not isinstance(contact, dict):
+                continue
+            if contact.get("likely_human") and not contact.get("human_self_declared"):
+                contact["likely_human"] = False
+                reset += 1
+            contact.setdefault("probable_bot_cluster", False)
+    state["v211_migrated"] = True
+    state["v211_likely_human_reset"] = reset
+    log(f"v2.1.1 human-signal migration: reset_likely_human={reset}")
 
 
 def save_state(path: Path, state: dict[str, Any]) -> None:
@@ -248,7 +297,7 @@ def natural_score(text: str) -> int:
         score += 2
     if "?" in stripped or "？" in stripped:
         score += 1
-    if LIKELY_HUMAN_RE.search(stripped):
+    if PERSONAL_CONTEXT_RE.search(stripped):
         score += 2
     if HUMAN_RE.search(stripped):
         score += 4
@@ -257,8 +306,45 @@ def natural_score(text: str) -> int:
     return max(score, 0)
 
 
-def human_signal(text: str) -> tuple[bool, bool]:
-    return bool(HUMAN_RE.search(text)), bool(LIKELY_HUMAN_RE.search(text))
+def human_signal(text: str, probable_bot_cluster: bool = False) -> tuple[bool, bool]:
+    declared = bool(HUMAN_RE.search(text))
+    likely = bool(PERSONAL_CONTEXT_RE.search(text))
+    if probable_bot_cluster and not declared:
+        likely = False
+    return declared, likely
+
+
+def template_key(text: str) -> str | None:
+    """Return a coarse template key for generic discussion prompts, or None."""
+    stripped = text.strip().lower()
+    if not GENERIC_PROMPT_RE.search(stripped):
+        return None
+    words = re.findall(r"[a-z0-9]+", stripped)
+    if len(words) < 5:
+        return None
+    # Prefix similarity catches bot farms such as:
+    # "What do you think are the biggest advantages..." vs "...biggest challenges..."
+    return " ".join(words[:7])
+
+
+def template_cluster_messages(messages: list[dict[str, Any]]) -> set[tuple[str, int]]:
+    groups: dict[str, list[tuple[str, int]]] = {}
+    for message in messages:
+        author = str(message.get("from", "") or "")
+        text = str(message.get("text", "") or "")
+        seq = int(message.get("seq", 0) or 0)
+        if not author:
+            continue
+        key = template_key(text)
+        if not key:
+            continue
+        groups.setdefault(key, []).append((author, seq))
+
+    clustered: set[tuple[str, int]] = set()
+    for members in groups.values():
+        if len({author for author, _ in members}) >= 2:
+            clustered.update(members)
+    return clustered
 
 
 def peer_id(author: str) -> str:
@@ -277,6 +363,7 @@ def record_natural_contact(
     state: dict[str, Any],
     message: dict[str, Any],
     room: str,
+    probable_bot_cluster: bool,
 ) -> tuple[str, dict[str, Any]]:
     author = str(message.get("from", "") or "")
     text = str(message.get("text", "") or "")
@@ -299,12 +386,19 @@ def record_natural_contact(
     if seq > previous_seq:
         contact["messages_seen"] = int(contact.get("messages_seen", 0) or 0) + 1
         contact["natural_messages"] = int(contact.get("natural_messages", 0) or 0) + 1
+        contact["last_text"] = text[:500]
+        contact["probable_bot_cluster"] = probable_bot_cluster
         room_seq[room] = seq
-    declared, likely = human_signal(text)
+
+    declared, likely = human_signal(text, probable_bot_cluster)
     if declared:
         contact["human_self_declared"] = True
     if likely:
         contact["likely_human"] = True
+    elif seq > previous_seq and not contact.get("human_self_declared"):
+        # latest evidence is not a personal-context signal; do not preserve stale v2.1 guesses
+        contact["likely_human"] = False
+
     set_stage(contact, "candidate")
     return cid, contact
 
@@ -393,19 +487,27 @@ def inspect(
             log(f"skip room={room} reason=no-natural-language noise={noise}")
         return None
 
+    cluster_ids = template_cluster_messages(natural_peers)
+    if cluster_ids:
+        stats["template_cluster_messages"] = (
+            int(stats.get("template_cluster_messages", 0) or 0) + len(cluster_ids)
+        )
+
     room_state = state.setdefault("rooms", {}).setdefault(room, {})
     own_messages = [m for m in messages if str(m.get("from", "") or "") in own]
     newest_own_seq = max((int(m.get("seq", 0) or 0) for m in own_messages), default=0)
     newest_own_seq = max(newest_own_seq, int(room_state.get("last_own_seq", 0) or 0))
 
-    ranked: list[tuple[int, int, dict[str, Any], str, dict[str, Any]]] = []
+    ranked: list[tuple[int, int, dict[str, Any], str, dict[str, Any], bool]] = []
     for message in natural_peers:
         author = str(message.get("from", "") or "")
         if not author:
             continue
-        cid, contact = record_natural_contact(state, message, room)
+        seq = int(message.get("seq", 0) or 0)
+        clustered = (author, seq) in cluster_ids
+        cid, contact = record_natural_contact(state, message, room, clustered)
         text = str(message.get("text", "") or "")
-        declared, likely = human_signal(text)
+        declared, likely = human_signal(text, clustered)
         score = natural_score(text)
         if declared:
             score += 10
@@ -413,14 +515,16 @@ def inspect(
             score += 4
         if author.startswith("did:key:"):
             score += 2
-        ranked.append((score, int(message.get("seq", 0) or 0), message, cid, contact))
+        if clustered:
+            score -= 7
+        ranked.append((score, seq, message, cid, contact, clustered))
 
     if not ranked:
         return None
     ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    _, peer_seq, newest, cid, contact = ranked[0]
+    _, peer_seq, newest, cid, contact, clustered = ranked[0]
     peer_text = str(newest.get("text", "") or "")
-    declared, likely = human_signal(peer_text)
+    declared, likely = human_signal(peer_text, clustered)
 
     greeted = room_state.get("greeted_at") is not None
     last_replied = int(room_state.get("last_replied_to_seq", 0) or 0)
@@ -440,6 +544,12 @@ def inspect(
         if int(contact.get("messages_out", 0) or 0) >= 1 and int(contact.get("replies_to_love8", 0) or 0) >= 2:
             set_stage(contact, "established")
 
+    # Do not spend a new-greeting budget on a repeated generic-prompt bot cluster.
+    if not greeted and clustered and not declared:
+        stats["template_clusters_rejected"] = int(stats.get("template_clusters_rejected", 0) or 0) + 1
+        log(f"skip greet room={room} peer={cid} reason=probable-template-bot")
+        return None
+
     if not greeted:
         return {
             "kind": "greet",
@@ -449,8 +559,9 @@ def inspect(
             "cid": cid,
             "human_self_declared": declared,
             "likely_human": likely,
+            "probable_bot_cluster": clustered,
             "verified": bool(contact.get("verified")),
-            "score": natural_score(peer_text) + (10 if declared else 4 if likely else 0),
+            "score": natural_score(peer_text) + (10 if declared else 4 if likely else 0) - (7 if clustered else 0),
         }
 
     if (
@@ -467,8 +578,9 @@ def inspect(
             "cid": cid,
             "human_self_declared": declared,
             "likely_human": likely,
+            "probable_bot_cluster": clustered,
             "verified": bool(contact.get("verified")),
-            "score": natural_score(peer_text) + (10 if declared else 4 if likely else 0) + 3,
+            "score": natural_score(peer_text) + (10 if declared else 4 if likely else 0) + 3 - (7 if clustered else 0),
         }
     return None
 
@@ -513,6 +625,7 @@ def run_once(args: argparse.Namespace) -> bool:
             bool(a["human_self_declared"]),
             bool(a["likely_human"]),
             a["kind"] == "reply",
+            not bool(a["probable_bot_cluster"]),
             bool(a["verified"]),
             int(a["score"]),
             int(a["peer_seq"]),
@@ -544,8 +657,8 @@ def run_once(args: argparse.Namespace) -> bool:
             )
         elif chosen["likely_human"]:
             text = (
-                f"hi, i'm {nick}. your message sounded like an actual project/conversation rather "
-                "than a data feed. what are you working on, and what brought you here?"
+                f"hi, i'm {nick}. your message included some personal project/context, so i thought "
+                "it was worth saying hello. what are you working on, and what brought you here?"
             )
         else:
             text = (
@@ -558,6 +671,7 @@ def run_once(args: argparse.Namespace) -> bool:
             "DRY-RUN "
             f"action={kind} room={room} peer={cid} "
             f"human_self_declared={chosen['human_self_declared']} likely_human={chosen['likely_human']} "
+            f"probable_bot_cluster={chosen['probable_bot_cluster']} "
             f"verified={chosen['verified']} text={text}"
         )
         save_state(state_path, state)
@@ -594,7 +708,8 @@ def run_once(args: argparse.Namespace) -> bool:
     save_state(state_path, state)
     log(
         f"sent action={kind} room={room} peer={cid} stage={contact.get('stage')} "
-        f"likely_human={chosen['likely_human']} seq={last_seq}"
+        f"likely_human={chosen['likely_human']} probable_bot_cluster={chosen['probable_bot_cluster']} "
+        f"seq={last_seq}"
     )
     return True
 
