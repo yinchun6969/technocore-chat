@@ -1,0 +1,66 @@
+{
+  "schema": "technocore-a2a-contribution-receipt/v1",
+  "workflow_id": "wf-1787757470-5f882e70e2",
+  "participants": {
+    "scout": {
+      "agent": "love8",
+      "did": "did:key:z6MkfGtYxQg6e2u7aLBJVzowxgtgTmYzzXo227W9AvVQwq3p"
+    },
+    "builder": {
+      "agent": "aizong",
+      "did": "did:key:z6MktU13Pf4jVf6Ck5D3pwNYX2PVUAfNC61ytciyb4Coyh7e"
+    },
+    "reviewer": {
+      "agent": "ai2ai",
+      "did": "did:key:z6Mkrs9FviuKvQnAnexWfF1RWduNh6CqydrMAw8RUo73zoje"
+    }
+  },
+  "stage_hashes": {
+    "goal_sha256": "ab1b9754ade4fd3b7fd304eda31548078068011247cd50f49cc57b38650b26f4",
+    "build_result_sha256": "97adf7e5bf7a3ec11ec8c07a932b634f2a4983272573e6995d12f1b085fcdb0f",
+    "challenge_initial_sha256": "243a69e81b54dae321004045ddabb468456e7076dc7bc6192697478f36122d9e",
+    "challenge_effective_sha256": "e49f36796b1a703b758b5cf74cbadc1b34c2d0282a64485f923829e9de3a1e53",
+    "revised_result_sha256": "a21114f2f3df1be525cba10cbd527ca6acfec3f48edab7f76d3bb19012bbfa7b"
+  },
+  "observed_events": [
+    {
+      "event": "workflow_started",
+      "agent": "love8",
+      "ts": 1787757471.5850897
+    },
+    {
+      "event": "workflow_build_result",
+      "agent": "aizong",
+      "ts": 1787757619.370701
+    },
+    {
+      "event": "workflow_challenge",
+      "agent": "ai2ai",
+      "ts": 1787757651.3847136
+    },
+    {
+      "event": "workflow_challenge_recovered",
+      "agent": "ai2ai",
+      "ts": 1787758928.7286282
+    },
+    {
+      "event": "workflow_revised_result",
+      "agent": "aizong",
+      "ts": 1787759861.5178597
+    },
+    {
+      "event": "workflow_complete_received",
+      "agent": "ai2ai",
+      "ts": 1787759907.6002724
+    },
+    {
+      "event": "workflow_complete_received",
+      "agent": "aizong",
+      "ts": 1787759928.0670269
+    }
+  ],
+  "terminal_state": "COMPLETE",
+  "terminal_evidence": "COMPLETE was received by both reviewer and builder from the scout DID.",
+  "receipt_hash_definition": "SHA-256 of canonical JSON (UTF-8, sorted keys, separators ',' and ':') over {schema,workflow_id,participants:{role:DID},stage_hashes,terminal_state}. This is a derived receipt hash, not a Technocore protocol field.",
+  "receipt_final_sha256": "be287c0bcc7b337d416cf8bb1f0cc3d76765c9ff8f5dc8add12874ee8387285e"
+}
