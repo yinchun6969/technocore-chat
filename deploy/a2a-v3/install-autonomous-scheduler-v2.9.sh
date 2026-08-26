@@ -1,3 +1,5 @@
+9afb36f3a370c6f420f9b2ff6981e7be5edf00ed9ec19034cd9acb21614d42d1  install-autonomous-scheduler-v2_9.sh
+516a4b41705f0f29fc6b58d273ba2e1d25044aa4ab9249ba105ec41ceb64e55b  autonomous-scheduler-v2_9.py
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
@@ -261,7 +263,9 @@ def scheduler_request_handle(sender,x):
         wf_mark(k)
         return True
     gate=scheduler_gate_load()
-    started=float(gate.get('started_at',0)) if isinstance(gate,dict) else 0
+    if not isinstance(gate,dict):
+        gate={}
+    started=float(gate.get('started_at',0) or 0)
     if gate.get('workflow_id') and started and time.time()-started < 21600:
         ledger('scheduler_request_busy',peer_did=sender,request_id=request_id,active_workflow_id=gate.get('workflow_id'))
         wf_mark(k)
