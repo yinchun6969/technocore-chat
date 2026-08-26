@@ -1,0 +1,110 @@
+{
+  "artifact_id": "A2A-RC-1.0",
+  "title": "A2A Reliability Conformance Artifact v1.0",
+  "status": "conditional-pass",
+  "official": false,
+  "canonical_workflow_id": "wf-1787757470-5f882e70e2",
+  "canonical_receipt_id": "A2A-CANONICAL-0001",
+  "profile_date": "2026-08-27",
+  "participants": [
+    {
+      "role": "scout",
+      "agent": "love8",
+      "did": "did:key:z6MkfGtYxQg6e2u7aLBJVzowxgtgTmYzzXo227W9AvVQwq3p"
+    },
+    {
+      "role": "builder",
+      "agent": "aizong",
+      "did": "did:key:z6MktU13Pf4jVf6Ck5D3pwNYX2PVUAfNC61ytciyb4Coyh7e"
+    },
+    {
+      "role": "reviewer",
+      "agent": "ai2ai",
+      "did": "did:key:z6Mkrs9FviuKvQnAnexWfF1RWduNh6CqydrMAw8RUo73zoje"
+    }
+  ],
+  "workflow_stages": [
+    "WORKFLOW_TASK",
+    "BUILD_RESULT",
+    "CHALLENGE",
+    "REVISED_RESULT",
+    "COMPLETE"
+  ],
+  "wire_guard_bytes": 3400,
+  "canonical_evidence": {
+    "workflow_started": {
+      "status": "verified",
+      "agent": "love8",
+      "sha256": "ab1b9754ade4fd3b7fd304eda31548078068011247cd50f49cc57b38650b26f4"
+    },
+    "workflow_build_result": {
+      "status": "verified",
+      "agent": "aizong",
+      "sha256": "97adf7e5bf7a3ec11ec8c07a932b634f2a4983272573e6995d12f1b085fcdb0f"
+    },
+    "workflow_challenge": {
+      "status": "verified",
+      "agent": "ai2ai",
+      "sha256": "243a69e81b54dae321004045ddabb468456e7076dc7bc6192697478f36122d9e"
+    },
+    "workflow_challenge_recovered": {
+      "status": "verified",
+      "agent": "ai2ai",
+      "sha256": "e49f36796b1a703b758b5cf74cbadc1b34c2d0282a64485f923829e9de3a1e53"
+    },
+    "workflow_revised_result": {
+      "status": "pending"
+    },
+    "workflow_complete": {
+      "status": "pending"
+    },
+    "workflow_complete_received": {
+      "status": "pending"
+    }
+  },
+  "observed_failure_modes": [
+    "transient-429-503",
+    "processed-before-output",
+    "duplicate-workers",
+    "global-room-capacity",
+    "owned-room-authorization",
+    "whole-envelope-truncation",
+    "cursor-advance-after-invalid-envelope"
+  ],
+  "implemented_controls": [
+    "terminal-only-processed-state",
+    "remote-duplicate-suppression",
+    "single-worker-enforcement",
+    "existing-owned-room-fallback",
+    "room-writer-authorization",
+    "bounded-valid-json-envelope",
+    "same-workflow-recovery"
+  ],
+  "recommended_controls": [
+    "quarantine-before-cursor-advance",
+    "conflicting-duplicate-detection",
+    "terminal-receipt-verification"
+  ],
+  "conformance_level": {
+    "current": "RC3-CONDITIONAL",
+    "target": "RC4",
+    "terminal_test": "T15"
+  },
+  "tests": [
+    {"id":"T01","name":"identity-continuity","status":"pass"},
+    {"id":"T02","name":"role-separation","status":"pass"},
+    {"id":"T03","name":"workflow-correlation","status":"pass-observed-stages"},
+    {"id":"T04","name":"duplicate-task-idempotency","status":"pass-hardened-task-path"},
+    {"id":"T05","name":"429-recovery","status":"pass"},
+    {"id":"T06","name":"503-recovery","status":"pass"},
+    {"id":"T07","name":"crash-recovery","status":"pass-hardened-task-path"},
+    {"id":"T08","name":"single-consumer","status":"pass"},
+    {"id":"T09","name":"unauthorized-owned-room-write","status":"pass"},
+    {"id":"T10","name":"authorized-owned-room-write","status":"pass"},
+    {"id":"T11","name":"room-capacity-fallback","status":"pass"},
+    {"id":"T12","name":"oversize-envelope-validity","status":"pass-after-v3.3"},
+    {"id":"T13","name":"conflicting-duplicate","status":"not-yet-verified"},
+    {"id":"T14","name":"malformed-envelope-quarantine","status":"not-yet-verified"},
+    {"id":"T15","name":"terminal-closure","status":"pending"}
+  ]
+}
