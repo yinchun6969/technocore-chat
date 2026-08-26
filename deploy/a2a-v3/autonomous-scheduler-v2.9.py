@@ -135,11 +135,31 @@ def recent_evidence():
     except Exception as exc:
         public_events.append("public-room-read-error:" + str(exc)[:100])
 
+    commits = []
+    try:
+        response = requests.get(
+            "https://api.github.com/repos/yinchun6969/technocore-chat/commits",
+            params={"sha": "a2a-collab-v2", "per_page": 8},
+            headers={"Accept": "application/vnd.github+json"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        for item in response.json():
+            commit = item.get("commit", {})
+            message = " ".join(str(commit.get("message", "")).splitlines()).strip()
+            date = str(commit.get("committer", {}).get("date", ""))[:19]
+            if message:
+                commits.append(f"{date} {message[:180]}")
+    except Exception as exc:
+        commits.append("github-read-error:" + str(exc)[:100])
+
     return (
         "Recent local event types: "
         + ", ".join(events[-30:])
         + ". Recent public d-aizong message types: "
         + ", ".join(public_events[-30:])
+        + ". Recent GitHub commit subjects: "
+        + "; ".join(commits[-8:])
     )[:3600]
 
 
