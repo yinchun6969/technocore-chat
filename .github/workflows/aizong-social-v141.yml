@@ -1,0 +1,40 @@
+name: aizong Social v1.4.1 provenance calibration smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/aizong_social.py"
+      - "scripts/patch_aizong_social_v130.py"
+      - "scripts/patch_aizong_social_v131.py"
+      - "scripts/patch_aizong_social_v140.py"
+      - "scripts/patch_aizong_social_v141.py"
+      - "scripts/upgrade_aizong_social_v140.sh"
+      - "scripts/upgrade_aizong_social_v141.sh"
+      - "scripts/test_aizong_social_v141.py"
+      - ".github/workflows/aizong-social-v141.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provenance-calibration-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: |
+          python3 -m py_compile scripts/patch_aizong_social_v141.py scripts/test_aizong_social_v141.py
+      - name: Provenance calibration behavior
+        run: python3 scripts/test_aizong_social_v141.py
+      - name: Upgrade script syntax
+        run: bash -n scripts/upgrade_aizong_social_v141.sh
+      - name: Calibration invariants
+        run: |
+          grep -q 'TC_PROVENANCE_MIN_VALUE=75' scripts/upgrade_aizong_social_v141.sh
+          grep -q 'TC_PROVENANCE_MIN_ORIGINALITY=70' scripts/upgrade_aizong_social_v141.sh
+          grep -q 'TC_PROVENANCE_MIN_EVIDENCE=60' scripts/upgrade_aizong_social_v141.sh
+          grep -q 'TC_PROVENANCE_MAX_SIMILARITY_PCT=82' scripts/upgrade_aizong_social_v141.sh
+          grep -q 'TC_TEMPLATE_BLOCK_SIMILARITY_PCT=92' scripts/upgrade_aizong_social_v141.sh
+          grep -q 'never reuse a stock contribution template' scripts/patch_aizong_social_v141.py
+          grep -q 'Generic questions, greetings, praise and status are not provenance' scripts/patch_aizong_social_v141.py
