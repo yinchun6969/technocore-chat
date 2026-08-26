@@ -13,7 +13,7 @@ grep -q 'A2A_WIRE_GUARD_V33' "$ROOT/bin/collab.py" || { echo 'Envelope guard v3.
 
 cat > "$HELPER" <<'PY'
 #!/usr/bin/env python3
-import hashlib, importlib.util, json, os, sys, time
+import hashlib, importlib.util, os, sys
 from pathlib import Path
 from urllib.parse import quote
 
@@ -37,12 +37,10 @@ def seq(x):
     except Exception: return 0
 
 def find_valid(room,sender,kind):
-    found=[]
-    malformed=[]
+    found=[]; malformed=[]
     for msg in room_messages(room):
         if msg.get('from')!=sender: continue
-        text=msg.get('text')
-        obj=m.parse(text)
+        text=msg.get('text'); obj=m.parse(text)
         if obj and obj.get('task_id')==tid and obj.get('type')==kind:
             found.append((seq(msg),obj))
         elif isinstance(text,str) and text.startswith('A2A1 ') and tid in text:
@@ -51,8 +49,7 @@ def find_valid(room,sender,kind):
     return (found[-1] if found else None), malformed
 
 def audit():
-    rooms=[]
-    fb=os.environ.get('A2A_FALLBACK_INBOX','').strip()
+    rooms=[]; fb=os.environ.get('A2A_FALLBACK_INBOX','').strip()
     for r in (fb,m.MAILBOX,'d-aizong'):
         if r and r not in rooms: rooms.append(r)
     print('agent:',m.AGENT,'role:',m.ROLE,'workflow:',tid)
@@ -72,8 +69,7 @@ def recover_revision():
     love8_route=m.wf_mailbox(LOVE8)
     if m.outbound_seen(love8_route,tid,'REVISED_RESULT'):
         print('REVISED_RESULT_ALREADY_REMOTE',tid); return
-    rooms=[]
-    fb=os.environ.get('A2A_FALLBACK_INBOX','').strip()
+    rooms=[]; fb=os.environ.get('A2A_FALLBACK_INBOX','').strip()
     for r in (fb,'d-aizong',m.MAILBOX):
         if r and r not in rooms: rooms.append(r)
     hit=None; source_room=None; malformed=[]
@@ -81,21 +77,16 @@ def recover_revision():
         try:
             h,bad=find_valid(room,AI2AI,'CHALLENGE'); malformed += [(room,x) for x in bad]
             if h and (hit is None or h[0]>hit[0]): hit=h; source_room=room
-        except Exception:
-            continue
+        except Exception: continue
     if not hit:
-        if malformed:
-            print('ONLY_MALFORMED_CHALLENGE_FOUND',malformed[-5:])
+        if malformed: print('ONLY_MALFORMED_CHALLENGE_FOUND',malformed[-5:])
         raise SystemExit('VALID_CHALLENGE_NOT_FOUND: run ai2ai ensure-challenge, then retry revision recovery')
     s,obj=hit
-    goal=str(obj.get('goal',''))[:900]
-    build=str(obj.get('build_result',''))[:1100]
-    challenge=str(obj.get('challenge',''))[:1100]
+    goal=str(obj.get('goal',''))[:900]; build=str(obj.get('build_result',''))[:1100]; challenge=str(obj.get('challenge',''))[:1100]
     revised=m.ai('Workflow revision recovery stage. Revise the Builder result in response to the independent Reviewer challenge. Preserve uncertainty and do not claim unperformed execution.\nGOAL:\n'+goal+'\nBUILD:\n'+build+'\nCHALLENGE:\n'+challenge)[:1700]
     m.wf_send(LOVE8,'REVISED_RESULT',tid,goal=goal,challenge=challenge,revised_result=revised,
               builder_did=AIZONG,reviewer_did=AI2AI,recovery=True)
-    if not m.outbound_seen(love8_route,tid,'REVISED_RESULT'):
-        raise SystemExit('REVISED_RESULT_SEND_NOT_VERIFIED')
+    if not m.outbound_seen(love8_route,tid,'REVISED_RESULT'): raise SystemExit('REVISED_RESULT_SEND_NOT_VERIFIED')
     m.ledger('workflow_revised_result_recovered',workflow_id=tid,peer_did=LOVE8,
              source_room=source_room,source_seq=s,result_sha256=hashlib.sha256(revised.encode()).hexdigest())
     try: m.wf_mark(m.wf_key(AI2AI,obj))
@@ -105,8 +96,7 @@ def recover_revision():
 def recover_finalize():
     if m.AGENT!='love8' or m.ROLE!='scout': raise SystemExit('finalize recovery must run on love8 Scout')
     aizong_route=m.wf_mailbox(AIZONG); ai2ai_route=m.wf_mailbox(AI2AI)
-    a_done=m.outbound_seen(aizong_route,tid,'COMPLETE')
-    r_done=m.outbound_seen(ai2ai_route,tid,'COMPLETE')
+    a_done=m.outbound_seen(aizong_route,tid,'COMPLETE'); r_done=m.outbound_seen(ai2ai_route,tid,'COMPLETE')
     if a_done and r_done:
         print('COMPLETE_ALREADY_REMOTE',tid); return
     hit,bad=find_valid(m.MAILBOX,AIZONG,'REVISED_RESULT')
@@ -114,9 +104,7 @@ def recover_finalize():
         if bad: print('MALFORMED_REVISED_RESULT_SEQS',bad[-5:])
         raise SystemExit('VALID_REVISED_RESULT_NOT_FOUND')
     s,obj=hit
-    goal=str(obj.get('goal',''))[:900]
-    challenge=str(obj.get('challenge',''))[:900]
-    revised=str(obj.get('revised_result',''))[:1500]
+    goal=str(obj.get('goal',''))[:900]; challenge=str(obj.get('challenge',''))[:900]; revised=str(obj.get('revised_result',''))[:1500]
     summary=m.ai('Workflow Scout completion recovery stage. Assess whether the revised result addresses the original goal and reviewer challenge. Produce a concise terminal summary including unresolved risks. Do not claim external execution.\nGOAL:\n'+goal+'\nCHALLENGE:\n'+challenge+'\nREVISED:\n'+revised)[:1200]
     m.wf_send(AIZONG,'COMPLETE',tid,status='complete',final_summary=summary,recovery=True)
     m.wf_send(AI2AI,'COMPLETE',tid,status='complete',final_summary=summary,recovery=True)
@@ -154,7 +142,11 @@ if [[ "$MODE" != audit ]]; then
     tc-collab-stop >/dev/null 2>&1 || true; restart=runner
   fi
 fi
-exec "$ROOT/venv/bin/python" "$ROOT/bin/workflow_endgame_recover.py" "$MODE" "$WF"
+set +e
+"$ROOT/venv/bin/python" "$ROOT/bin/workflow_endgame_recover.py" "$MODE" "$WF"
+rc=$?
+set -e
+exit "$rc"
 EOF
 chmod 0755 /usr/local/bin/tc-collab-workflow-recover
 
