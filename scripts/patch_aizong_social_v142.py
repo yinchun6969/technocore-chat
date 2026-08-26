@@ -63,8 +63,8 @@ def patch_source(source: str) -> str:
 
     source = _replace_once(
         source,
-        '            "topics": _clean_list(memory.get("topics"), limit=8),\n        },\n        "reason": _single_line(str(decision.get("reason", "")), 240),',
-        '            "topics": _clean_list(memory.get("topics"), limit=8),\n'
+        '            "topics": _clean_list(memory.get("topics"), limit=16),\n        },\n        "reason": _single_line(str(decision.get("reason", "")), 240),',
+        '            "topics": _clean_list(memory.get("topics"), limit=16),\n'
         '            "importance": _bounded_int(memory.get("importance")),\n'
         '            "confidence": _bounded_int(memory.get("confidence")),\n'
         '            "public_safe": bool(memory.get("public_safe", False)),\n'
@@ -116,15 +116,20 @@ def _public_memory_safe(text: str) -> bool:
 def _memory_core(memory: dict[str, Any]) -> dict[str, Any]:
     return {
         "summary": _single_line(str(memory.get("summary", "")), 640),
-        "capabilities": _clean_list(memory.get("capabilities"), limit=8),
-        "projects": _clean_list(memory.get("projects"), limit=8),
-        "interests": _clean_list(memory.get("interests"), limit=8),
-        "topics": _clean_list(memory.get("topics"), limit=12),
+        "capabilities": _clean_list(memory.get("capabilities"), limit=16),
+        "projects": _clean_list(memory.get("projects"), limit=16),
+        "interests": _clean_list(memory.get("interests"), limit=16),
+        "topics": _clean_list(memory.get("topics"), limit=24),
     }
 
 
 def _memory_digest(memory: dict[str, Any]) -> str:
-    payload = json.dumps(_memory_core(memory), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    payload = json.dumps(
+        _memory_core(memory),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -145,10 +150,16 @@ def _consolidate_contact_memory(
     if not isinstance(brain_memory, dict):
         brain_memory = {}
     memory.update(_memory_core(memory))
-    memory["importance"] = _bounded_int(brain_memory.get("importance", memory.get("importance", 0)))
-    memory["confidence"] = _bounded_int(brain_memory.get("confidence", memory.get("confidence", 0)))
+    memory["importance"] = _bounded_int(
+        brain_memory.get("importance", memory.get("importance", 0))
+    )
+    memory["confidence"] = _bounded_int(
+        brain_memory.get("confidence", memory.get("confidence", 0))
+    )
     public_summary = _single_line(str(brain_memory.get("public_summary", "")), 280)
-    public_safe = bool(brain_memory.get("public_safe", False)) and _public_memory_safe(public_summary)
+    public_safe = bool(brain_memory.get("public_safe", False)) and _public_memory_safe(
+        public_summary
+    )
     memory["public_safe"] = public_safe
     memory["public_summary"] = public_summary if public_safe else ""
 
@@ -236,7 +247,12 @@ def _durable_memory_budget_ok(state: dict[str, Any]) -> tuple[bool, str]:
 def _memory_sync_candidate(
     state: dict[str, Any], action: dict[str, Any], decision: dict[str, Any]
 ) -> tuple[bool, str, dict[str, Any]]:
-    if os.getenv("TC_MEMORY_PUBLIC_SYNC", "1").strip().lower() not in ("1", "true", "yes", "on"):
+    if os.getenv("TC_MEMORY_PUBLIC_SYNC", "1").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
         return False, "public durable memory disabled", {}
     author = str(action.get("peer_author", ""))
     if not author.startswith("did:key:"):
@@ -288,7 +304,9 @@ def _memory_sync_candidate(
         "summary": summary,
         "digest": digest,
         "evidence_kind": _single_line(str(decision.get("evidence_kind", "none")), 40),
-        "contribution_type": _single_line(str(decision.get("contribution_type", "other")), 40),
+        "contribution_type": _single_line(
+            str(decision.get("contribution_type", "other")), 40
+        ),
     }
 
 
@@ -315,10 +333,22 @@ def _build_memory_envelope(
         "evidence_kind": evidence_kind,
         "contribution_type": contribution_type,
     }
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    signature = _sign_detached(key, b"technocore:aizong-memory:v1|" + canonical.encode("utf-8"))
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    signature = _sign_detached(
+        key, b"technocore:aizong-memory:v1|" + canonical.encode("utf-8")
+    )
     envelope = {"alg": "Ed25519", "payload": payload, "sig": signature}
-    return json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        envelope,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _write_durable_memory_note(base: str, namespace: str, note_key: str, value: str) -> None:
@@ -364,7 +394,13 @@ def _maybe_sync_durable_memory(
     )
     try:
         _write_durable_memory_note(base, namespace, note_key, envelope)
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        ValueError,
+        OSError,
+    ) as exc:
         _strategy_metric(state, "durable_memory_sync_failures")
         log(f"WARN durable memory checkpoint deferred: {type(exc).__name__}: {exc}")
         return False
@@ -379,7 +415,10 @@ def _maybe_sync_durable_memory(
     durable["payload_signature"] = "ed25519"
     durable["server_note_auth"] = "unsigned-world-writable"
     _strategy_metric(state, "durable_memory_syncs")
-    log(f"durable memory checkpoint synced ns={namespace} key={note_key} source={room}:{seq}")
+    log(
+        f"durable memory checkpoint synced ns={namespace} key={note_key} "
+        f"source={room}:{seq}"
+    )
     return True
 """
     source = _replace_once(
