@@ -37,6 +37,7 @@ DEFAULT_INTERVAL = int(os.environ.get("SCHEDULER_INTERVAL_SECONDS", "21600"))
 MAX_DAILY = int(os.environ.get("SCHEDULER_MAX_DAILY", "4"))
 MAX_ACTIVE = int(os.environ.get("SCHEDULER_MAX_ACTIVE_SECONDS", "14400"))
 TICK_SECONDS = int(os.environ.get("SCHEDULER_TICK_SECONDS", "60"))
+START_DELAY = int(os.environ.get("SCHEDULER_START_DELAY_SECONDS", "180"))
 
 TOPICS = [
     "检查最近 A2A workflow 是否存在消息丢失、重复投递、顺序异常或 cursor 风险，并提出只读验证建议",
@@ -60,6 +61,7 @@ def load_state():
     default = {
         "version": "2.9",
         "paused": False,
+        "boot_at": 0,
         "topic_index": 0,
         "last_tick": 0,
         "last_request_at": 0,
@@ -219,6 +221,15 @@ def tick():
     current = now()
     state["last_tick"] = current
 
+    if not state.get("boot_at"):
+        state["boot_at"] = current
+        save_state(state)
+        log(f"startup_delay_seconds={START_DELAY}")
+        return
+    if current - float(state.get("boot_at", current)) < START_DELAY:
+        save_state(state)
+        return
+
     if state.get("paused"):
         save_state(state)
         return
@@ -307,6 +318,7 @@ def status():
     print("love8_pinned:", bool(agent.peers().get(LOVE8_DID)))
     print("paused:", bool(state.get("paused")))
     print("interval_seconds:", DEFAULT_INTERVAL)
+    print("startup_delay_seconds:", START_DELAY)
     print("max_daily:", MAX_DAILY)
     print("active:", "yes" if isinstance(active, dict) else "no")
     if isinstance(active, dict):
