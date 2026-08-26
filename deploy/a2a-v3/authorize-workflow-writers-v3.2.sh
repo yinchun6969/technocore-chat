@@ -45,6 +45,7 @@ room, expected_did, love8_did, ai2ai_did, key_path = sys.argv[1:]
 base = 'https://technocore.chat'
 B58='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 DID_RE=r'did:key:z6Mk[1-9A-HJ-NP-Za-km-z]+'
+s=requests.Session()
 
 def b58(data: bytes) -> str:
     n=int.from_bytes(data,'big'); out=''
@@ -53,61 +54,88 @@ def b58(data: bytes) -> str:
     pad=len(data)-len(data.lstrip(b'\0'))
     return '1'*pad+(out or '')
 
+def get_retry(url, *, allow_404=False, tries=5):
+    last=None
+    for i in range(tries):
+        try:
+            r=s.get(url,timeout=25); last=r
+            if r.status_code < 300 or (allow_404 and r.status_code == 404):
+                return r
+            if r.status_code != 429 and r.status_code < 500:
+                r.raise_for_status()
+        except requests.RequestException:
+            if i == tries-1: raise
+        time.sleep(min(2**i,8))
+    if last is not None: last.raise_for_status()
+    raise RuntimeError('GET failed without response')
+
+def read_allow():
+    r=get_retry(f'{base}/kv/room-allow/{quote(room)}',allow_404=True)
+    return set(re.findall(DID_RE,r.text)) if r.status_code == 200 else set()
+
 key=serialization.load_pem_private_key(Path(key_path).read_bytes(),password=None)
 raw=key.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)
 did='did:key:z'+b58(b'\xed\x01'+raw)
 if did != expected_did:
     raise SystemExit(f'ABORT: private key derives unexpected DID: {did}')
 
-owner_r=requests.get(f'{base}/kv/room-owners/{quote(room)}',timeout=20)
-owner_r.raise_for_status()
+owner_r=get_retry(f'{base}/kv/room-owners/{quote(room)}')
 owners=set(re.findall(DID_RE, owner_r.text))
 if owners != {did}:
     raise SystemExit(f'ABORT: {room} owner note does not resolve uniquely to this aizong DID: {sorted(owners)!r}')
 print('owner_verified:', did)
 
-# Preserve any owner-managed existing allow-list entries, then add the two
-# workflow peers. Only syntactically valid did:key tokens are carried forward.
-allow_r=requests.get(f'{base}/kv/room-allow/{quote(room)}',timeout=20)
-existing=[]
-if allow_r.status_code == 200:
-    existing=re.findall(DID_RE, allow_r.text)
-elif allow_r.status_code not in (404,):
-    allow_r.raise_for_status()
-
+existing=read_allow()
 writers=[]
-for item in existing + [love8_did, ai2ai_did]:
+for item in list(existing) + [love8_did, ai2ai_did]:
     if item not in writers and item != did:
         writers.append(item)
 value=' '.join(writers)
 
-# room-owners and room-allow share a per-room replay counter. Use a nonce
-# strictly above both the server value and the current microsecond clock.
-nonce_r=requests.get(f'{base}/kv/room-nonce/{quote(room)}',timeout=20)
-if nonce_r.status_code == 200:
-    nums=[int(x) for x in re.findall(r'\b\d{1,19}\b', nonce_r.text)]
-    remote=max(nums or [0])
-elif nonce_r.status_code == 404:
-    remote=0
+# Idempotent fast path: if both peers are already authorized, do not rewrite the note.
+if love8_did in existing and ai2ai_did in existing:
+    print('allow_write: already configured')
 else:
-    nonce_r.raise_for_status()
-nonce=max(remote+1, int(time.time()*1_000_000))
-if nonce >= 10**19:
-    raise SystemExit('ABORT: room nonce would exceed 19 digits')
+    last=None
+    for attempt in range(5):
+        nonce_r=get_retry(f'{base}/kv/room-nonce/{quote(room)}',allow_404=True)
+        if nonce_r.status_code == 200:
+            nums=[int(x) for x in re.findall(r'\b\d{1,19}\b', nonce_r.text)]
+            remote=max(nums or [0])
+        else:
+            remote=0
+        nonce=max(remote+1, int(time.time()*1_000_000))
+        if nonce >= 10**19:
+            raise SystemExit('ABORT: room nonce would exceed 19 digits')
+        canonical=f'room-allow|{room}|{nonce}|{value}'
+        sig=base64.urlsafe_b64encode(key.sign(canonical.encode())).decode().rstrip('=')
+        url=(f'{base}/kv/room-allow/{quote(room)}/set-signed/'
+             f'{quote(did, safe="")}/{quote(sig, safe="")}/{nonce}/{quote(value, safe="")}')
+        try:
+            r=s.get(url,timeout=30); last=r
+            if r.status_code < 300:
+                print('allow_write: OK')
+                print('nonce:', nonce)
+                break
+            # The request may have committed even if a proxy returned an error; verify.
+            actual=read_allow()
+            if love8_did in actual and ai2ai_did in actual:
+                print('allow_write: verified after non-2xx response')
+                break
+            if r.status_code not in (400,409,429) and r.status_code < 500:
+                r.raise_for_status()
+        except requests.RequestException as e:
+            last=e
+            actual=read_allow()
+            if love8_did in actual and ai2ai_did in actual:
+                print('allow_write: verified after transport error')
+                break
+        time.sleep(min(2**attempt,8))
+    else:
+        detail=(f'HTTP {last.status_code}: {last.text[:400]}' if hasattr(last,'status_code') else repr(last))
+        raise SystemExit('ALLOW_WRITE_FAILED '+detail)
 
-canonical=f'room-allow|{room}|{nonce}|{value}'
-sig=base64.urlsafe_b64encode(key.sign(canonical.encode())).decode().rstrip('=')
-url=(f'{base}/kv/room-allow/{quote(room)}/set-signed/'
-     f'{quote(did, safe="")}/{quote(sig, safe="")}/{nonce}/{quote(value, safe="")}')
-r=requests.get(url,timeout=30)
-if r.status_code >= 300:
-    raise SystemExit(f'ALLOW_WRITE_FAILED HTTP {r.status_code}: {r.text[:500]}')
-print('allow_write: OK')
-print('nonce:', nonce)
-
-verify=requests.get(f'{base}/kv/room-allow/{quote(room)}',timeout=20)
-verify.raise_for_status()
-actual=set(re.findall(DID_RE, verify.text))
+actual=read_allow()
 missing=[x for x in (love8_did, ai2ai_did) if x not in actual]
 if missing:
     raise SystemExit('VERIFY_FAILED missing: '+','.join(missing))
