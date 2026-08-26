@@ -6,7 +6,7 @@ BACKUP_ROOT="/root/tc-a2a-autonomous-v2.9-backups"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 BRANCH="a2a-autonomous-v2.9"
 SCHEDULER_URL="https://raw.githubusercontent.com/yinchun6969/technocore-chat/$BRANCH/deploy/a2a-v3/autonomous-scheduler-v2.9.py"
-SCHEDULER_SHA256="20e5ab62556cbf2284008c22a135d915eb30039f534a5210a6143a1f5017c834"
+SCHEDULER_SHA256="516a4b41705f0f29fc6b58d273ba2e1d25044aa4ab9249ba105ec41ceb64e55b"
 
 die() { printf '\n[x] %s\n' "$*" >&2; exit 1; }
 
@@ -92,6 +92,7 @@ Environment=SCHEDULER_INTERVAL_SECONDS=21600
 Environment=SCHEDULER_MAX_DAILY=4
 Environment=SCHEDULER_MAX_ACTIVE_SECONDS=14400
 Environment=SCHEDULER_TICK_SECONDS=60
+Environment=SCHEDULER_START_DELAY_SECONDS=180
 ExecStart=$root/venv/bin/python $scheduler run
 Restart=always
 RestartSec=15
