@@ -20,4 +20,12 @@ fi
 sed -i 's/API-key prefix \[Bearer \]/API-key prefix [Bearer]/g' "$TMP" || true
 sed -i 's/AI_KEY_PREFIX=${AI_KEY_PREFIX:-Bearer }/AI_KEY_PREFIX=${AI_KEY_PREFIX:-Bearer}/g' "$TMP" || true
 
-exec bash "$TMP"
+# If this wrapper itself is started through `curl ... | sudo bash`, stdin is the curl pipe.
+# The downloaded interactive installer must read from the terminal instead, otherwise its
+# first `read` sees EOF immediately after printing the banner and exits under `set -e`.
+if [[ -r /dev/tty ]]; then
+  exec bash "$TMP" </dev/tty
+else
+  echo "No interactive TTY available. Download the script first, then run it with sudo bash." >&2
+  exit 1
+fi
