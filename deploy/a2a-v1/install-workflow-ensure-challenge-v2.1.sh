@@ -79,8 +79,13 @@ WF=\"\${1:-}\"
 [[ \"\$WF\" == wf-* ]] || { echo 'usage: tc-a2a-workflow-ensure-challenge <wf-id>'; exit 2; }
 was=0
 if systemctl is-active --quiet $SERVICE; then systemctl stop $SERVICE; was=1; fi
-trap '[[ \"$was\" == 1 ]] && systemctl start $SERVICE >/dev/null 2>&1 || true' EXIT
-exec \"\$ROOT/venv/bin/python\" \"\$ROOT/bin/workflow_ensure_challenge.py\" \"\$WF\"
+cleanup(){ [[ \"\$was\" == 1 ]] && systemctl start $SERVICE >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+set +e
+\"\$ROOT/venv/bin/python\" \"\$ROOT/bin/workflow_ensure_challenge.py\" \"\$WF\"
+rc=\$?
+set -e
+exit \"\$rc\"
 EOF
 chmod 0755 /usr/local/bin/tc-a2a-workflow-ensure-challenge
 
