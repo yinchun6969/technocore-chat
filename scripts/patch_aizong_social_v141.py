@@ -81,7 +81,7 @@ def patch_source(source: str) -> str:
         "brain-result",
     )
 
-    helpers = r'''
+    helpers = r"""
 
 
 def _provenance_percent(name: str, default: int) -> int:
@@ -164,7 +164,7 @@ def _calibrate_provenance(
     if similarity >= max_similarity:
         return False, f"similarity {similarity:.2f} above provenance ceiling", similarity
     return True, "calibrated strong provenance", similarity
-'''
+"""
     source = _replace_once(
         source,
         "\ndef _strategy_limit(name: str, default: int, low: int, high: int) -> int:",
@@ -174,11 +174,11 @@ def _calibrate_provenance(
 
     source = _replace_once(
         source,
-        '''    text = _single_line(str(decision.get("text", fallback)))
+        """    text = _single_line(str(decision.get("text", fallback)))
     mode = str(decision.get("mode", "rules"))
     if args.dry_run:
-''',
-        '''    text = _single_line(str(decision.get("text", fallback)))
+""",
+        """    text = _single_line(str(decision.get("text", fallback)))
     mode = str(decision.get("mode", "rules"))
     ledger_path = Path(args.ledger)
     anti_ok, anti_reason, template_similarity = _anti_farming_allows_text(ledger_path, text)
@@ -199,17 +199,17 @@ def _calibrate_provenance(
     if brain_provenance_worthy and not calibrated_worthy:
         _strategy_metric(state, "provenance_downgraded")
     if args.dry_run:
-''',
+""",
         "calibration-before-send",
     )
 
     source = _replace_once(
         source,
-        '''        "contribution_value": contribution_value,
+        """        "contribution_value": contribution_value,
         "provenance_worthy": bool(decision.get("provenance_worthy", False)),
         "contribution_type": _single_line(str(decision.get("contribution_type", "other")), 40),
-''',
-        '''        "contribution_value": contribution_value,
+""",
+        """        "contribution_value": contribution_value,
         "originality_score": _bounded_int(decision.get("originality_score")),
         "evidence_strength": _bounded_int(decision.get("evidence_strength")),
         "durable_state_value": _bounded_int(decision.get("durable_state_value")),
@@ -219,19 +219,19 @@ def _calibrate_provenance(
         "provenance_reason": _single_line(str(decision.get("provenance_reason", "")), 160),
         "template_similarity": float(decision.get("template_similarity", 0.0) or 0.0),
         "contribution_type": _single_line(str(decision.get("contribution_type", "other")), 40),
-''',
+""",
         "ledger-calibration-fields",
     )
 
     source = _replace_once(
         source,
-        '''        f"sent action={kind} room={room} seq={last_seq} brain={mode} "
+        """        f"sent action={kind} room={room} seq={last_seq} brain={mode} "
         f"contribution={contribution_value}"
-''',
-        '''        f"sent action={kind} room={room} seq={last_seq} brain={mode} "
+""",
+        """        f"sent action={kind} room={room} seq={last_seq} brain={mode} "
         f"contribution={contribution_value} worthy={bool(decision.get('provenance_worthy'))} "
         f"similarity={float(decision.get('template_similarity', 0.0) or 0.0):.2f}"
-''',
+""",
         "send-log",
     )
 
