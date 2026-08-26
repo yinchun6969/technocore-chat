@@ -4,15 +4,18 @@ RAW="${REPO_RAW:-https://raw.githubusercontent.com/yinchun6969/technocore-chat/l
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 curl -fsSL "$RAW/scripts/upgrade_love8_persistent_v241.sh" -o "$TMP"
-# Correct the generated helper's quote-strip expression before execution.
+# Correct one generated helper line in the upgrade payload before execution.
 python3 - "$TMP" <<'PY'
 from pathlib import Path
 import sys
-p=Path(sys.argv[1]); s=p.read_text(encoding='utf-8')
-bad="did=line.split('=',1)[1].strip().strip('\\\"\\\\\''); break"
-good='did=line.split(\'=\',1)[1].strip().strip("\\\"\'"); break'
-if bad in s:
-    s=s.replace(bad,good)
-p.write_text(s,encoding='utf-8')
+p=Path(sys.argv[1])
+lines=p.read_text(encoding='utf-8').splitlines()
+out=[]
+for line in lines:
+    if "if line.startswith('DID='):" in line:
+        out.append(" if line.startswith('DID='): did=line.split('=',1)[1].strip().strip(chr(34)+chr(39)); break")
+    else:
+        out.append(line)
+p.write_text('\n'.join(out)+'\n',encoding='utf-8')
 PY
 bash "$TMP"
