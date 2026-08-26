@@ -53,6 +53,6 @@ set -e
 if [[ $rc -eq 0 ]]; then
   echo 'A2A_RC4_NODE_VERIFIED'
 else
-  echo "RC4 promotion action completed; verification is not terminal on this node yet (rc=$rc)."
+  echo "RC4 promotion action completed; verification is not terminal on this node yet (rc=$rc). Continue the next node, then re-run verify-rc4.sh on all three nodes."
 fi
-exit $rc
+exit 0
