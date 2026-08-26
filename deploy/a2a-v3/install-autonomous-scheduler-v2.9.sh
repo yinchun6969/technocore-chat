@@ -6,7 +6,7 @@ BACKUP_ROOT="/root/tc-a2a-autonomous-v2.9-backups"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 BRANCH="a2a-autonomous-v2.9"
 SCHEDULER_URL="https://raw.githubusercontent.com/yinchun6969/technocore-chat/$BRANCH/deploy/a2a-v3/autonomous-scheduler-v2.9.py"
-SCHEDULER_SHA256="516a4b41705f0f29fc6b58d273ba2e1d25044aa4ab9249ba105ec41ceb64e55b"
+SCHEDULER_SHA256="ef16f76e6800c1dbeab4ec2490e43bc1d90eb62c9a346530b866a44d064bfc59"
 
 die() { printf '\n[x] %s\n' "$*" >&2; exit 1; }
 
