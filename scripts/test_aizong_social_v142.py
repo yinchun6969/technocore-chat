@@ -98,7 +98,9 @@ def test_memory_consolidation_is_bounded_and_stable() -> None:
             }
         }
         mod._consolidate_contact_memory(state, action, decision)
-        memory = state["contacts"][mod.peer_id(author)]["memory"]
+        raw_memory: Any = state["contacts"][mod.peer_id(author)]["memory"]
+        assert isinstance(raw_memory, dict)
+        memory: dict[str, Any] = raw_memory
         first_digest = memory["digest"]
         assert len(memory["capabilities"]) == 1
         assert memory["importance"] == 88
