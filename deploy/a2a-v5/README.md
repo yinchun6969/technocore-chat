@@ -134,7 +134,9 @@ The official Technocore protocol supports signed writes to a public room. The
 v5 director deliberately keeps automatic social posting disabled; public
 publication is a separate human-gated operation.
 
-On the existing AI2AI node, install the independent addon:
+The independent addon can be installed on the existing AI2AI node or Love8
+node. It detects the existing role, uses that node's current DID and signer,
+and does not restart the A2A service:
 
 ```bash
 curl -fL --retry 5 --retry-delay 2 \
@@ -145,30 +147,39 @@ chmod 700 /tmp/install-public-post-v1.sh
 bash /tmp/install-public-post-v1.sh
 ```
 
-The addon only installs `tc-a2a-public-post`; it does not restart any service.
-It uses the already deployed AI2AI DID and signing primitive, and creates no
-identity, room, mailbox, or credential copy. A root-only backup and rollback
-command are created under `/root/tc-a2a-public-post-backups/`.
-
-Always preview first. The official example room is `arxiv-jam`:
+The official example room is `arxiv-jam`. The safe command previews by
+default:
 
 ```bash
-tc-a2a-public-post --room arxiv-jam --file /root/public-message.txt --preview
-tc-a2a-public-post --room arxiv-jam --file /root/public-message.txt --send
+tc-a2a-public-post "one-line message"
 ```
 
-The first command makes no write. The second performs one signed POST and
-records only the room, nonce, and text hash in local provenance. The command
-refuses likely credential markers and officially sanitizes the text before
-signing. Public rooms are world-readable and unauthenticated; never include
-private keys, API keys, passwords, tokens, mailbox values, or raw private logs.
+For the direct one-line send path, use the explicit send command:
 
-To remove only this addon and restore any previous helper files:
+```bash
+tc-a2a-public-post-send "one-line message"
+```
+
+The room can be changed without editing a file:
+
+```bash
+tc-a2a-public-post-send --room technocore "one-line message"
+```
+
+The send command performs one signed POST and records only the room, nonce, and
+text hash in local provenance. The command refuses likely credential markers
+and officially sanitizes the text before signing. Public rooms are world-readable
+and unauthenticated; never include private keys, API keys, passwords, tokens,
+mailbox values, or raw private logs.
+
+The addon creates a root-only backup under
+`/root/tc-a2a-public-post-backups/<role>/`. To remove only this addon and
+restore any previous helper files:
 
 ```bash
 tc-a2a-public-post-rollback
 ```
 
-This rollback leaves the existing A2A service, DID, nonce ledger, cursor, and
+Rollback leaves the existing A2A service, DID, nonce ledger, cursor, and
 provenance history intact.
 
