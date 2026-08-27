@@ -139,7 +139,7 @@ Group=tcagent
 EnvironmentFile=$env
 Environment=RND_V5_TICK_SECONDS=90
 Environment=RND_V5_START_DELAY_SECONDS=180
-Environment=RND_V5_MIN_GAP_SECONDS=21600
+Environment=RND_V5_MIN_GAP_SECONDS=7200
 Environment=RND_V5_MAX_DAILY=4
 Environment=RND_V5_MAX_ACTIVE_SECONDS=21600
 Environment=RND_V5_SOURCE_REPO=yinchun6969/technocore-chat
