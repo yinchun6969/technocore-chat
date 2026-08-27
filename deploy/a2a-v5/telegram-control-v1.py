@@ -20,6 +20,8 @@ ENV_FILE = Path("/etc/technocore-a2a-telegram.env")
 STATE = ROOT / "tg-bot-state"
 OFFSET = STATE / "offset.json"
 DRAFTS = STATE / "drafts"
+NOTIFY_STATE = STATE / "notify.json"
+PROVENANCE = ROOT / "state" / "provenance.jsonl"
 DIRECTOR_STATE = ROOT / "rnd-v5-state" / "director.json"
 CURATOR_STATE = ROOT / "rnd-v5-state" / "curator.json"
 MANUAL_QUEUE = ROOT / "rnd-v5-state" / "manual-requests.jsonl"
@@ -122,6 +124,107 @@ def send(chat_id: int, text: str) -> None:
             "text": text[start:start + MAX_REPLY],
             "disable_web_page_preview": True,
         })
+
+
+
+NOTIFY_LABELS = {
+    "rnd_objective_selected": "研究目标已选定",
+    "scheduler_request_sent": "研究任务已发送给 Love8 Scout",
+    "workflow_task_received": "Love8 Scout 已启动工作流",
+    "workflow_build_result": "Aizong Builder 已完成初步分析",
+    "workflow_challenge": "AI2AI Reviewer 已开始交叉验证",
+    "workflow_challenge_recovered": "Reviewer 已完成挑战恢复/补充验证",
+    "workflow_revised_result": "Aizong Builder 已提交修订结果",
+    "workflow_complete_received": "三方研究工作流已完成",
+    "rnd_artifact_created": "研究档案已生成",
+    "artifact_ready": "已生成研究简报，等待人工批准发布",
+    "rnd_artifact_rejected": "证据门禁未通过，研究结果需要补充",
+    "evidence_room_error": "证据房间读取失败，正在等待重试",
+    "rnd_candidate_rejected": "候选研究目标被安全策略拒绝",
+    "director_error": "Director 运行出现错误",
+    "rnd_director_error": "Director 运行出现错误",
+    "receipt_publish_error": "研究凭证发布失败",
+}
+
+
+def event_message(row: dict) -> str | None:
+    event = str(row.get("event", "")).strip()
+    label = NOTIFY_LABELS.get(event)
+    if not label:
+        return None
+    workflow = compact(row.get("workflow_id") or row.get("task_id"), 120)
+    request_id = compact(row.get("request_id"), 120)
+    goal = compact(row.get("goal"), 700)
+    error = compact(row.get("error"), 500)
+    lines = [f"🔔 AI2AI 自主研究进度\n阶段：{label}"]
+    if workflow:
+        lines.append(f"workflow: {workflow}")
+    if request_id:
+        lines.append(f"request: {request_id}")
+    if goal and event == "rnd_objective_selected":
+        lines.append(f"目标：{goal}")
+    if error:
+        lines.append(f"说明：{error}")
+    if event == "artifact_ready":
+        lines.append("如需公开发布：先发送 /draft，再由你发送 /approve post-编号。")
+    return "\n".join(lines)
+
+
+def notify_events() -> None:
+    """Forward new signed provenance milestones to the allowlisted Telegram user."""
+    if not PROVENANCE.is_file():
+        return
+    state = read_json(NOTIFY_STATE, {})
+    if not isinstance(state, dict):
+        state = {}
+    try:
+        offset = max(0, int(state.get("offset", 0)))
+    except (TypeError, ValueError):
+        offset = 0
+    sent = state.get("sent", [])
+    if not isinstance(sent, list):
+        sent = []
+    sent_keys = {str(item) for item in sent[-1000:]}
+    try:
+        size = PROVENANCE.stat().st_size
+        if offset > size:
+            offset = 0
+        with PROVENANCE.open("rb") as handle:
+            handle.seek(offset)
+            while True:
+                line_start = handle.tell()
+                raw = handle.readline()
+                if not raw:
+                    break
+                line_end = handle.tell()
+                try:
+                    row = json.loads(raw.decode("utf-8"))
+                except (UnicodeDecodeError, ValueError):
+                    offset = line_end
+                    continue
+                if not isinstance(row, dict):
+                    offset = line_end
+                    continue
+                message = event_message(row)
+                if message is not None:
+                    key = "|".join(str(row.get(item, "")) for item in (
+                        "ts", "event", "request_id", "workflow_id", "task_id",
+                        "artifact_sha256", "error",
+                    ))
+                    if key not in sent_keys:
+                        try:
+                            for chat_id in ALLOWED:
+                                send(int(chat_id), message)
+                        except Exception:
+                            # Preserve the current line for a later retry.
+                            offset = line_start
+                            break
+                        sent.append(key)
+                        sent_keys.add(key)
+                offset = line_end
+    except OSError:
+        return
+    write_json(NOTIFY_STATE, {"offset": offset, "sent": sent[-1000:]})
 
 
 def unit(unit_name: str) -> str:
@@ -408,6 +511,7 @@ def run() -> None:
     offset = int(offset_value.get("offset", 0)) if isinstance(offset_value, dict) else 0
     while True:
         try:
+            notify_events()
             updates = api("getUpdates", {
                 "offset": offset, "timeout": POLL, "allowed_updates": ["message"],
             })
@@ -418,6 +522,7 @@ def run() -> None:
                 handle(update)
                 offset = max(offset, update_id + 1)
                 write_json(OFFSET, {"offset": offset})
+            notify_events()
         except KeyboardInterrupt:
             raise
         except Exception:
