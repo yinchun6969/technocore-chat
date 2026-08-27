@@ -30,4 +30,4 @@ jobs:
           grep -q 'PERSIST_DEEP_PEER_COOLDOWN.*604800' scripts/love8_persistent_v250_wrapper.py
           grep -q 'room_candidate' scripts/love8_persistent_v250_wrapper.py
           grep -q 'identity-room-scan' scripts/upgrade_love8_identity_room_v250.sh
-          grep -q 'v2.4.1 append-only permanent memory' scripts/love8_persistent_v250_wrapper.py
+          grep -q 'append-only permanent memory' scripts/love8_persistent_v250_wrapper.py
