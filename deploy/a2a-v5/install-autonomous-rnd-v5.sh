@@ -179,6 +179,7 @@ EOF
 set -Eeuo pipefail
 PY="$py"
 ROOT="$root"
+set -a; source "$root/.env"; set +a
 echo '=== AI2AI AUTONOMOUS R&D v5 ==='
 "\$PY" "$director" status
 echo
@@ -190,14 +191,17 @@ systemctl is-active technocore-a2a.service technocore-a2a-rnd-v5.service technoc
 EOF
   cat > /usr/local/bin/tc-a2a-rnd-v5-pause <<EOF
 #!/usr/bin/env bash
+set -a; source "$root/.env"; set +a
 exec "$py" "$director" pause
 EOF
   cat > /usr/local/bin/tc-a2a-rnd-v5-resume <<EOF
 #!/usr/bin/env bash
+set -a; source "$root/.env"; set +a
 exec "$py" "$director" resume
 EOF
   cat > /usr/local/bin/tc-a2a-rnd-v5-reset <<EOF
 #!/usr/bin/env bash
+set -a; source "$root/.env"; set +a
 exec "$py" "$director" reset-active
 EOF
   cat > /usr/local/bin/tc-a2a-rnd-v5-artifacts <<EOF
