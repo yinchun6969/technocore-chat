@@ -114,6 +114,9 @@ def load_state() -> dict:
         "active_request": None,
         "manual_queue_offset": 0,
         "last_manual_request_id": "",
+        # Seen remote stages are notification checkpoints, not task state.
+        "workflow_stage_seen": {},
+        "delivery_alerts": {},
     }
     try:
         value = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -221,6 +224,85 @@ def workflow_snapshot() -> tuple[dict[str, dict], bool]:
     return workflows, read_ok
 
 
+def observe_workflow_stages(state: dict, workflows: dict[str, dict]) -> None:
+    """Record newly observed public-room stages for the Telegram bridge."""
+    seen = state.setdefault("workflow_stage_seen", {})
+    if not isinstance(seen, dict):
+        seen = {}
+        state["workflow_stage_seen"] = seen
+    for task_id, stages in workflows.items():
+        if not isinstance(stages, dict):
+            continue
+        for stage, item in stages.items():
+            if stage not in {"WORKFLOW_TASK", "BUILD_RESULT", "CHALLENGE", "REVISED_RESULT", "COMPLETE"}:
+                continue
+            if not isinstance(item, dict):
+                continue
+            seq = item.get("seq", 0)
+            key = f"{task_id}|{stage}|{seq}"
+            if key in seen:
+                continue
+            seen[key] = now()
+            log(
+                "workflow_stage_observed",
+                workflow_id=task_id,
+                stage=stage,
+                seq=seq,
+                room=clean(item.get("room"), 120),
+                signer=clean(item.get("from"), 180),
+            )
+    # Keep the checkpoint bounded while preserving the newest observations.
+    if len(seen) > 2000:
+        state["workflow_stage_seen"] = dict(list(seen.items())[-1200:])
+
+
+def workflow_linked_to_request(workflows: dict[str, dict], request_id: str) -> bool:
+    fields = ("scheduler_request_id", "request_id", "origin_request_id")
+    for stages in workflows.values():
+        if not isinstance(stages, dict):
+            continue
+        for item in stages.values():
+            obj = item.get("obj", {}) if isinstance(item, dict) else {}
+            if isinstance(obj, dict) and any(clean(obj.get(field), 120) == request_id for field in fields):
+                return True
+    return False
+
+
+def observe_scheduler_delivery(state: dict, workflows: dict[str, dict]) -> None:
+    """Alert once when a sent scheduler request has no public workflow yet."""
+    active = state.get("active_request")
+    if not isinstance(active, dict):
+        return
+    request_id = clean(active.get("request_id"), 120)
+    if not request_id:
+        return
+    if workflow_linked_to_request(workflows, request_id):
+        alerts = state.setdefault("delivery_alerts", {})
+        if isinstance(alerts, dict):
+            alerts.pop(request_id, None)
+        return
+    try:
+        sent_at = float(active.get("sent_at", 0) or 0)
+    except (TypeError, ValueError):
+        sent_at = 0
+    age = max(0, now() - sent_at) if sent_at else 0
+    if age < 180:
+        return
+    alerts = state.setdefault("delivery_alerts", {})
+    if not isinstance(alerts, dict):
+        alerts = {}
+        state["delivery_alerts"] = alerts
+    if request_id in alerts:
+        return
+    alerts[request_id] = now()
+    log(
+        "scheduler_delivery_wait",
+        request_id=request_id,
+        age_seconds=int(age),
+        reason="no_workflow_task_observed",
+    )
+
+
 def local_evidence() -> list[str]:
     values: list[str] = []
     path = getattr(agent, "LEDGER_PATH", ROOT / "state" / "provenance.jsonl")
@@ -322,8 +404,12 @@ def source_evidence() -> list[str]:
     return result[-80:]
 
 
-def evidence_pack() -> tuple[str, str]:
-    workflows, room_read_safe = workflow_snapshot()
+def evidence_pack(
+    workflows: dict[str, dict] | None = None,
+    room_read_safe: bool | None = None,
+) -> tuple[str, str]:
+    if workflows is None or room_read_safe is None:
+        workflows, room_read_safe = workflow_snapshot()
     local = local_evidence()
     source = source_evidence()
     stage_lines: list[str] = []
@@ -589,25 +675,27 @@ def tick() -> None:
         return
     day = utc_day()
     state["daily"] = {key: value for key, value in state.get("daily", {}).items() if key >= day}
-    if daily_count(state, day) >= number("RND_V5_MAX_DAILY", 1, 8):
-        save_state(state)
-        return
-    # Read the human queue before the autonomous cadence gate. A direct
-    # Telegram research request is an explicit operator action: it still
-    # respects the daily cap and the single-active-workflow rule, but it must
-    # not wait behind the normal autonomous interval.
+    # Keep observing an in-flight workflow even during the autonomous
+    # cadence gap and after the daily scheduling cap is reached.
     manual, manual_offset = next_manual_request(state)
-    last_sent = float(state.get("last_request_at", 0) or 0)
-    if last_sent and now() - last_sent < number("RND_V5_MIN_GAP_SECONDS", 1800, 86400) and not manual:
-        save_state(state)
-        return
-    evidence_text, evidence_sha256 = evidence_pack()
     workflows, room_read_safe = workflow_snapshot()
+    observe_workflow_stages(state, workflows)
+    observe_scheduler_delivery(state, workflows)
     active = active_request(state, workflows, room_read_safe)
     if active:
         log("director_wait", active=active)
         save_state(state)
         return
+    if daily_count(state, day) >= number("RND_V5_MAX_DAILY", 1, 8):
+        save_state(state)
+        return
+    # A direct Telegram research request remains subject to the daily cap and
+    # single-active-workflow rule, but does not wait behind the normal gap.
+    last_sent = float(state.get("last_request_at", 0) or 0)
+    if last_sent and now() - last_sent < number("RND_V5_MIN_GAP_SECONDS", 1800, 86400) and not manual:
+        save_state(state)
+        return
+    evidence_text, evidence_sha256 = evidence_pack(workflows, room_read_safe)
     request_source = "autonomous-director"
     if manual:
         goal = clean(manual.get("goal"), 1700)
