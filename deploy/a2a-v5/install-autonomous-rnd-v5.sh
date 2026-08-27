@@ -5,7 +5,7 @@ set -Eeuo pipefail
 # The existing identity, mailbox, peer map, cursor and provenance are never
 # replaced.  v5 adds independent services and a signed Love8 request gate.
 
-VERSION="5.0.0"
+VERSION="5.0.1"
 REPO_RAW="https://raw.githubusercontent.com/yinchun6969/technocore-chat"
 V5_REF="a2a-autonomous-rnd-v5"
 V5_RAW="$REPO_RAW/$V5_REF/deploy/a2a-v5"
@@ -141,7 +141,7 @@ Environment=RND_V5_TICK_SECONDS=90
 Environment=RND_V5_START_DELAY_SECONDS=180
 Environment=RND_V5_MIN_GAP_SECONDS=7200
 Environment=RND_V5_MAX_DAILY=4
-Environment=RND_V5_MAX_ACTIVE_SECONDS=21600
+Environment=RND_V5_MAX_ACTIVE_SECONDS=5400
 Environment=RND_V5_SOURCE_REPO=yinchun6969/technocore-chat
 Environment=RND_V5_UPSTREAM_REPO=flop-labs/technocore-chat
 Environment=RND_V5_SOURCE_LOOKBACK=8
