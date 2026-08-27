@@ -98,6 +98,10 @@ install_ai2ai() {
   # the runtime writable by the service account.
   chgrp tcagent "$root/bin/agent.py" || die "Cannot assign tcagent read group to agent.py"
   chmod 0640 "$root/bin/agent.py"
+  # The legacy bin directory is root-only.  Grant tcagent traverse-only access;
+  # it still cannot list or modify the directory or any other runtime file.
+  chgrp tcagent "$root/bin" || die "Cannot assign tcagent traverse group to bin"
+  chmod 0710 "$root/bin"
 
   stamp_dir="$(backup_path ai2ai)"
   backup_ai2ai "$stamp_dir"
