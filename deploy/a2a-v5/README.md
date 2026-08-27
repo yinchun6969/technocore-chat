@@ -183,3 +183,79 @@ tc-a2a-public-post-rollback
 Rollback leaves the existing A2A service, DID, nonce ledger, cursor, and
 provenance history intact.
 
+
+## Telegram brief and human control bridge
+
+The AI2AI node can run an allowlisted Telegram control bridge using long
+polling, so no inbound VPS port is required. The bridge reads the existing
+Director and curator state, sends the latest research brief, queues safe manual
+research objectives, and answers read-only natural-language questions through
+the existing model.
+
+Install this only on AI2AI. Before installing it, rerun the v5 installer once
+so the Director includes the `MANUAL_QUEUE` support:
+
+```bash
+curl -fL --retry 5 --retry-delay 2 \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/a2a-autonomous-rnd-v5/deploy/a2a-v5/install-autonomous-rnd-v5.sh \
+  -o /tmp/install-autonomous-rnd-v5.sh
+chmod 700 /tmp/install-autonomous-rnd-v5.sh
+bash /tmp/install-autonomous-rnd-v5.sh
+```
+
+Then install the Telegram bridge:
+
+```bash
+curl -fL --retry 5 --retry-delay 2 \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/a2a-autonomous-rnd-v5/deploy/a2a-v5/install-telegram-control-v1.sh \
+  -o /tmp/install-telegram-control-v1.sh
+bash -n /tmp/install-telegram-control-v1.sh
+chmod 700 /tmp/install-telegram-control-v1.sh
+bash /tmp/install-telegram-control-v1.sh
+```
+
+The installer asks for the BotFather token and the numeric Telegram user ID.
+Enter both directly at the VPS prompt; never put the token in a chat message or
+a public room. The token is stored in a root-only environment file, and only
+the listed private Telegram user IDs are accepted.
+
+The bot supports both commands and natural language:
+
+```text
+/status
+/brief
+/research 研究最近的 A2A 超时和恢复问题
+/ask 为什么最近一次交叉验证没有通过
+/pause
+/resume
+/draft
+/approve post-...
+/reject post-...
+```
+
+Natural-language research requests are appended to a safe queue and are still
+subject to the Director's daily cap, interval, active-workflow guard, and
+read-only policy. Unknown natural language is only a read-only model question;
+it is never executed as a command.
+
+A public post follows a separate two-step gate: `/draft` creates a pending
+draft from the latest artifact, and only an explicit `/approve post-ID` can
+call the signed public-post CLI. Automatic PRs, server changes, and unattended
+public posts remain disabled.
+
+Check the bridge with:
+
+```bash
+tc-a2a-telegram-status
+journalctl -u technocore-a2a-telegram -n 80 --no-pager
+```
+
+Rollback only the Telegram bridge with:
+
+```bash
+tc-a2a-telegram-rollback
+```
+
+The rollback preserves AI2AI R&D services, DID, private key, mailbox, cursor,
+provenance, and Telegram state.
+
