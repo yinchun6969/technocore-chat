@@ -131,6 +131,9 @@ def send(chat_id: int, text: str) -> None:
 NOTIFY_LABELS = {
     "rnd_objective_selected": "研究目标已选定",
     "scheduler_request_sent": "研究任务已发送给 Love8 Scout",
+    "director_wait": "当前工作流仍在处理中，新研究任务暂候",
+    "active_request_expired": "旧工作流已超时，Director 准备继续调度",
+    "active_request_cleared": "上一工作流已完成，Director 已解除等待",
     "workflow_task_received": "Love8 Scout 已启动工作流",
     "workflow_build_result": "Aizong Builder 已完成初步分析",
     "workflow_challenge": "AI2AI Reviewer 已开始交叉验证",
@@ -162,6 +165,9 @@ def event_message(row: dict) -> str | None:
         lines.append(f"workflow: {workflow}")
     if request_id:
         lines.append(f"request: {request_id}")
+    active = compact(row.get("active"), 120)
+    if active and event == "director_wait":
+        lines.append(f"等待工作流：{active}")
     if goal and event == "rnd_objective_selected":
         lines.append(f"目标：{goal}")
     if error:
@@ -229,10 +235,15 @@ def notify_events() -> None:
                         continue
                     message = event_message(row)
                     if message is not None:
-                        key = "|".join(str(row.get(item, "")) for item in (
-                            "ts", "event", "request_id", "workflow_id", "task_id",
-                            "artifact_sha256", "error",
-                        ))
+                        if event == "director_wait":
+                            # Director writes this heartbeat repeatedly; notify once
+                            # per active workflow instead of spamming every tick.
+                            key = "|".join((event, compact(row.get("active"), 120)))
+                        else:
+                            key = "|".join(str(row.get(item, "")) for item in (
+                                "ts", "event", "request_id", "workflow_id", "task_id",
+                                "artifact_sha256", "error",
+                            ))
                         if key not in sent_keys:
                             try:
                                 for chat_id in ALLOWED:
