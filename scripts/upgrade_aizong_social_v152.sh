@@ -12,7 +12,7 @@ die(){ printf '\n[x] %s\n' "$*" >&2; exit 1; }
 [[ ${EUID:-$(id -u)} -eq 0 ]] || die "请用 root 执行"
 [[ -s "$PROGRAM" ]] || die "找不到 $PROGRAM"
 
-current(){ grep -Eo 'VERSION = "[0-9.]+'"'"' "$PROGRAM" | head -n1 | cut -d'"' -f2; }
+current(){ sed -n 's/^VERSION = "\([0-9.]*\)".*/\1/p' "$PROGRAM" | head -n1; }
 CUR="$(current)"
 if [[ "$CUR" != "1.5.1" && "$CUR" != "1.5.2" ]]; then
   log "当前 $CUR，先进入 v1.5.1"
@@ -52,7 +52,7 @@ cat >/usr/local/bin/tc-aizong-room-status <<'EOF'
 set -Eeuo pipefail
 STATE=/opt/technocore-agent/state/social-v1.json
 CONFIG=/opt/technocore-agent/config
-DID=$(awk -F= '$1=="DID"{gsub(/["'"'']/,"",$2); print $2}' "$CONFIG" 2>/dev/null | tail -n1)
+DID=$(awk -F= '$1=="DID"{print $2}' "$CONFIG" 2>/dev/null | tr -d "\"'" | tail -n1)
 echo '===== AIZONG IDENTITY ROOM v1.5.2 ====='
 echo 'agent=aizong'
 echo "did=$DID"
