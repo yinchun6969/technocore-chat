@@ -157,8 +157,15 @@ def read_room(room: str, limit: int = 200) -> list[dict]:
             return body.get("messages", []) if isinstance(body, dict) else []
         except Exception as exc:  # noqa: BLE001 - network boundary
             last_error = exc
+            log(
+                "room_read_attempt_error",
+                room=room,
+                attempt=attempt + 1,
+                error=clean(f"{type(exc).__name__}: {exc!r}", 260),
+            )
             time.sleep(min(8, 2**attempt))
-    raise RuntimeError(f"room read failed {room}: {clean(last_error, 180)}")
+    detail = f"{type(last_error).__name__}: {last_error!r}" if last_error else "unknown"
+    raise RuntimeError(f"room read failed {room}: {clean(detail, 240)}")
 
 
 def rooms() -> list[str]:
@@ -225,6 +232,37 @@ def local_evidence() -> list[str]:
         if any(token in event.lower() for token in interesting) or row.get("error"):
             values.append(clean(f"{event} workflow={row.get('workflow_id', '')} error={row.get('error', '')}", 260))
     return values[-40:]
+
+
+def local_inflight() -> str | None:
+    """Use the AI2AI ledger as the safe guard during a public-room outage."""
+    path = getattr(agent, "LEDGER_PATH", ROOT / "state" / "provenance.jsonl")
+    terminal = {"workflow_complete_received", "workflow_complete_recovered", "workflow_complete"}
+    active_events = {
+        "workflow_task_received", "workflow_build_result", "workflow_challenge",
+        "workflow_challenge_recovered", "workflow_revised_result",
+    }
+    latest: dict[str, tuple[float, str]] = {}
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()[-800:]
+    except OSError:
+        return None
+    for line in lines:
+        try:
+            row = json.loads(line)
+            task_id = clean(row.get("workflow_id") or row.get("task_id"), 120)
+            event = clean(row.get("event"), 100)
+            timestamp = float(row.get("ts", 0) or 0)
+        except (ValueError, TypeError):
+            continue
+        if not task_id.startswith("wf-"):
+            continue
+        if event in active_events or event in terminal:
+            previous = latest.get(task_id)
+            if previous is None or timestamp >= previous[0]:
+                latest[task_id] = (timestamp, event)
+    active = [(timestamp, task_id) for task_id, (timestamp, event) in latest.items() if event in active_events]
+    return max(active)[1] if active else None
 
 
 def github_json(path: str, params: dict[str, object]) -> object:
@@ -334,16 +372,19 @@ def daily_count(state: dict, day: str) -> int:
 
 
 def active_request(state: dict, workflows: dict[str, dict], room_read_safe: bool) -> str | None:
-    if not room_read_safe:
-        return "room-read-failed"
     for task_id, stages in workflows.items():
         if "WORKFLOW_TASK" in stages and "COMPLETE" not in stages:
             return task_id
+    local_active = local_inflight()
+    if local_active:
+        return local_active
     active = state.get("active_request")
     if isinstance(active, dict):
         started = float(active.get("sent_at", 0) or 0)
         if started and now() - started < number("RND_V5_MAX_ACTIVE_SECONDS", 900, 86400):
             return clean(active.get("request_id"), 120) or "request-pending"
+    if not room_read_safe:
+        log("degraded_room_mode", decision="allow_candidate_if_local_idle")
     return None
 
 
@@ -427,7 +468,7 @@ def tick() -> None:
 
 def status() -> None:
     state = load_state()
-    print("director: autonomous-rnd-v5")
+    print("director: autonomous-rnd-v5.1")
     print("agent:", getattr(agent, "AGENT", ""))
     print("did:", getattr(agent, "DID", ""))
     print("paused:", bool(state.get("paused")))
@@ -435,7 +476,7 @@ def status() -> None:
     print("last_request_at:", state.get("last_request_at", 0))
     print("active_request:", json.dumps(state.get("active_request"), ensure_ascii=True))
     print("last_error:", clean(state.get("last_error"), 500))
-    print("policy: read-only, cross-validation>=2 sources, no-auto-PR, no-auto-server-change")
+    print("policy: read-only, cross-validation>=2 sources, degraded-room-fallback, no-auto-PR, no-auto-server-change")
 
 
 def change_pause(paused: bool) -> None:
