@@ -144,7 +144,10 @@ chmod 0700 "$ROLLBACK"
 rm -f "$tmp"
 trap - EXIT
 systemctl daemon-reload
-systemctl enable --now technocore-a2a-telegram.service
+# Reload the Python process after replacing the script; --now alone does not
+# restart an already-active unit.
+systemctl enable technocore-a2a-telegram.service
+systemctl restart technocore-a2a-telegram.service
 sleep 2
 systemctl is-active --quiet technocore-a2a-telegram.service || die "Telegram bridge failed; run tc-a2a-telegram-rollback"
 
