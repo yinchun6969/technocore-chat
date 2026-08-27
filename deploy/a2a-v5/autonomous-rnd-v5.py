@@ -240,7 +240,7 @@ def local_evidence() -> list[str]:
     return values[-40:]
 
 
-def local_inflight() -> str | None:
+def local_inflight(max_age: int | None = None) -> str | None:
     """Use the AI2AI ledger as the safe guard during a public-room outage."""
     path = getattr(agent, "LEDGER_PATH", ROOT / "state" / "provenance.jsonl")
     terminal = {"workflow_complete_received", "workflow_complete_recovered", "workflow_complete"}
@@ -267,7 +267,12 @@ def local_inflight() -> str | None:
             previous = latest.get(task_id)
             if previous is None or timestamp >= previous[0]:
                 latest[task_id] = (timestamp, event)
-    active = [(timestamp, task_id) for task_id, (timestamp, event) in latest.items() if event in active_events]
+    active = [
+        (timestamp, task_id)
+        for task_id, (timestamp, event) in latest.items()
+        if event in active_events
+        and (max_age is None or now() - timestamp < max_age)
+    ]
     return max(active)[1] if active else None
 
 
@@ -411,13 +416,68 @@ def request_linked_to_completed_workflow(request_id: str, workflows: dict[str, d
     return False
 
 
+def workflow_started_at(task_id: str, stages: dict) -> float | None:
+    """Return a best-effort creation time so stale workflows cannot block forever."""
+    try:
+        candidate = float(task_id.split("-", 2)[1])
+        if candidate > 1_000_000_000:
+            return candidate
+    except (IndexError, TypeError, ValueError):
+        pass
+    for stage in stages.values():
+        if not isinstance(stage, dict):
+            continue
+        obj = stage.get("obj", {})
+        values = [stage.get("ts")]
+        if isinstance(obj, dict):
+            values.extend(obj.get(key) for key in ("ts", "created_at", "timestamp"))
+        for value in values:
+            try:
+                candidate = float(value)
+            except (TypeError, ValueError):
+                continue
+            if candidate > 1_000_000_000:
+                return candidate
+    return None
+
+
 def active_request(state: dict, workflows: dict[str, dict], room_read_safe: bool) -> str | None:
+    max_active = number("RND_V5_MAX_ACTIVE_SECONDS", 900, 86400)
+    seen = state.setdefault("workflow_seen_at", {})
+    if not isinstance(seen, dict):
+        seen = {}
+        state["workflow_seen_at"] = seen
+
+    # Public-room messages can outlive a broken workflow.  Apply the same
+    # maximum active age to the workflow itself, not only to the state marker.
     for task_id, stages in workflows.items():
-        if "WORKFLOW_TASK" in stages and "COMPLETE" not in stages:
-            return task_id
-    local_active = local_inflight()
+        if "WORKFLOW_TASK" not in stages or "COMPLETE" in stages:
+            continue
+        started = workflow_started_at(task_id, stages)
+        if started is None:
+            try:
+                started = float(seen.get(task_id, 0) or 0)
+            except (TypeError, ValueError):
+                started = 0
+            if not started:
+                started = now()
+                seen[task_id] = started
+        age = max(0, now() - started)
+        if age >= max_active:
+            log(
+                "workflow_active_expired",
+                task_id=task_id,
+                age_seconds=int(age),
+                max_active_seconds=max_active,
+            )
+            continue
+        return task_id
+
+    # Ledger-only activity is also bounded during a public-room outage.
+    local_active = local_inflight(max_active)
     if local_active:
         return local_active
+
     active = state.get("active_request")
     if isinstance(active, dict):
         request_id = clean(active.get("request_id"), 120)
@@ -427,17 +487,15 @@ def active_request(state: dict, workflows: dict[str, dict], room_read_safe: bool
             log("active_request_cleared", request_id=request_id, reason="workflow_complete")
             return None
         started = float(active.get("sent_at", 0) or 0)
-        if started and now() - started < number("RND_V5_MAX_ACTIVE_SECONDS", 900, 86400):
+        if started and now() - started < max_active:
             return request_id or "request-pending"
         # A stale scheduler marker must not suppress autonomous research forever.
         state["active_request"] = None
         state["last_active_expired_at"] = now()
-        log("active_request_expired", request_id=request_id)
+        log("active_request_expired", request_id=request_id, reason="max_active")
     if not room_read_safe:
         log("degraded_room_mode", decision="allow_candidate_if_local_idle")
     return None
-
-
 def next_manual_request(state: dict) -> tuple[dict | None, int]:
     """Read one human-approved topic without executing any user-supplied command."""
     try:
