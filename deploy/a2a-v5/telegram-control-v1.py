@@ -507,6 +507,22 @@ def route(text: str, user_id: str) -> str:
         return brief()
     if ("发帖" in text or "帖子" in text) and any(item in text for item in ("草稿", "预览", "准备")):
         return draft()
+    # Clear imperatives are handled before model classification.  This
+    # prevents a model reply such as “I can only explain status” from swallowing
+    # an explicit request to start a research workflow.
+    explicit_research = (
+        "请立即", "立即开始", "立刻开始", "开始一轮", "发起一轮",
+        "开始研究", "发起研究", "继续研究", "派发研究", "找出 bug",
+        "找出bug", "寻找 bug", "寻找bug", "去和另外", "与另外",
+        "让另外", "让他们研究",
+    )
+    question_form = ("吗", "？", "?", "有没有", "是否")
+    if (
+        any(marker in text for marker in explicit_research)
+        and not any(marker in text for marker in question_form)
+    ):
+        return queue(text, user_id)
+
     # All free-form messages go through the configured model first.  The
     # model only classifies intent; it never receives permission to execute.
     # This gives the user natural-language dialogue and commands without making
