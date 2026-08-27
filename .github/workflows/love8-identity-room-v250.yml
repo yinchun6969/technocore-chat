@@ -1,0 +1,33 @@
+name: Love8 Persistent v2.5.0 identity room smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/love8_persistent_v250_wrapper.py"
+      - "scripts/test_love8_identity_room_v250.py"
+      - "scripts/upgrade_love8_identity_room_v250.sh"
+      - ".github/workflows/love8-identity-room-v250.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  identity-room-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: python3 -m py_compile scripts/love8_persistent_v250_wrapper.py scripts/test_love8_identity_room_v250.py
+      - name: Identity room behavior
+        run: python3 scripts/test_love8_identity_room_v250.py
+      - name: Upgrade script syntax
+        run: bash -n scripts/upgrade_love8_identity_room_v250.sh
+      - name: Identity room invariants
+        run: |
+          grep -q 'PERSIST_DEEP_MIN_SCORE.*78' scripts/love8_persistent_v250_wrapper.py
+          grep -q 'PERSIST_DEEP_MIN_AGE.*21600' scripts/love8_persistent_v250_wrapper.py
+          grep -q 'PERSIST_DEEP_PEER_COOLDOWN.*604800' scripts/love8_persistent_v250_wrapper.py
+          grep -q 'room_candidate' scripts/love8_persistent_v250_wrapper.py
+          grep -q 'identity-room-scan' scripts/upgrade_love8_identity_room_v250.sh
+          grep -q 'append-only permanent memory' scripts/love8_persistent_v250_wrapper.py
