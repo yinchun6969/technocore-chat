@@ -293,16 +293,11 @@ def _hub_action_rank(
 
     source = _replace_once(
         source,
-        """    own_ids = {nick, did}
-    rooms = candidate_rooms(base, args.rooms)
-    log(
-""",
-        """    own_ids = {nick, did}
-    rooms = candidate_rooms(base, args.rooms)
-    _ensure_home_room(base, nick, did, key, state, dry_run=args.dry_run)
-    rooms = _hub_rooms(rooms, args.rooms)
-    log(
-""",
+        '    _note_endpoint_success(state, "network")\n    log(\n',
+        '    _note_endpoint_success(state, "network")\n'
+        '    _ensure_home_room(base, nick, did, key, state, dry_run=args.dry_run)\n'
+        '    rooms = _hub_rooms(rooms, args.rooms)\n'
+        '    log(\n',
         "home-room-bootstrap-and-scan",
     )
 
