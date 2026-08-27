@@ -19,7 +19,8 @@ jobs:
         run: bash -n scripts/upgrade_agent_identity_room_final.sh
       - name: Three architecture routes
         run: |
-          grep -q 'upgrade_agent_identity_room_v151.sh' scripts/upgrade_agent_identity_room_final.sh
-          grep -q 'upgrade_love8_identity_room_v250.sh' scripts/upgrade_agent_identity_room_final.sh
-          grep -q 'install-identity-room-v5.2.sh' scripts/upgrade_agent_identity_room_final.sh
+          grep -q 'upgrade_aizong_social_v152.sh' scripts/upgrade_agent_identity_room_final.sh
+          grep -q 'upgrade_love8_identity_room_v251.sh' scripts/upgrade_agent_identity_room_final.sh
+          grep -q 'install-identity-room-v5.2.1.sh' scripts/upgrade_agent_identity_room_final.sh
+          grep -q 'capacity-aware' scripts/upgrade_agent_identity_room_final.sh
           grep -q '不要加 sudo' scripts/upgrade_agent_identity_room_final.sh

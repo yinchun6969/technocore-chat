@@ -13,22 +13,22 @@ command -v curl >/dev/null || die "curl 未安装"
 
 case "$SELECTOR" in
   aizong)
-    log "AIZONG -> Social Brain v1.5.1 identity-named collaboration room"
-    URL="https://raw.githubusercontent.com/yinchun6969/technocore-chat/main/scripts/upgrade_agent_identity_room_v151.sh"
+    log "AIZONG -> Social Brain v1.5.2 capacity-aware identity room"
+    URL="https://raw.githubusercontent.com/yinchun6969/technocore-chat/main/scripts/upgrade_aizong_social_v152.sh"
     curl -fsSL --retry 5 --retry-delay 2 "$URL" -o "$TMP"
     bash -n "$TMP"
-    exec bash "$TMP" aizong
+    exec bash "$TMP"
     ;;
   love8)
-    log "LOVE8 -> Persistent v2.5.0 identity-named collaboration room"
-    URL="https://raw.githubusercontent.com/yinchun6969/technocore-chat/love8-social-v2/scripts/upgrade_love8_identity_room_v250.sh"
+    log "LOVE8 -> Persistent v2.5.1 capacity-aware identity room"
+    URL="https://raw.githubusercontent.com/yinchun6969/technocore-chat/love8-social-v2/scripts/upgrade_love8_identity_room_v251.sh"
     curl -fsSL --retry 5 --retry-delay 2 "$URL" -o "$TMP"
     bash -n "$TMP"
     exec bash "$TMP"
     ;;
   ai2ai)
-    log "AI2AI -> R&D v5.2 identity-named collaboration room"
-    URL="https://raw.githubusercontent.com/yinchun6969/technocore-chat/a2a-autonomous-rnd-v5/deploy/a2a-v5/install-identity-room-v5.2.sh"
+    log "AI2AI -> R&D v5.2.1 capacity-aware identity room"
+    URL="https://raw.githubusercontent.com/yinchun6969/technocore-chat/a2a-autonomous-rnd-v5/deploy/a2a-v5/install-identity-room-v5.2.1.sh"
     curl -fsSL --retry 5 --retry-delay 2 "$URL" -o "$TMP"
     bash -n "$TMP"
     exec bash "$TMP"
