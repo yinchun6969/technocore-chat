@@ -5,7 +5,7 @@ set -Eeuo pipefail
 # The existing identity, mailbox, peer map, cursor and provenance are never
 # replaced.  v5 adds independent services and a signed Love8 request gate.
 
-VERSION="5.0.1"
+VERSION="5.1.0"
 REPO_RAW="https://raw.githubusercontent.com/yinchun6969/technocore-chat"
 V5_REF="a2a-autonomous-rnd-v5"
 V5_RAW="$REPO_RAW/$V5_REF/deploy/a2a-v5"
@@ -59,6 +59,7 @@ backup_ai2ai() {
     usr/local/bin/tc-a2a-rnd-v5-resume \
     usr/local/bin/tc-a2a-rnd-v5-reset \
     usr/local/bin/tc-a2a-rnd-v5-artifacts \
+    usr/local/bin/tc-a2a-rnd-v5-room \
     usr/local/bin/tc-a2a-rnd-v5-rollback
   sha256sum "$out/prechange.tgz" >"$out/SHA256SUMS"
   chmod 0600 "$out/prechange.tgz" "$out/SHA256SUMS"
@@ -120,6 +121,7 @@ install_ai2ai() {
   trap 'rm -f "$tmp_director" "$tmp_curator"' RETURN
   curl -fL --retry 5 --retry-delay 2 "$V5_RAW/autonomous-rnd-v5.py" -o "$tmp_director"
   curl -fL --retry 5 --retry-delay 2 "$V5_RAW/autonomous-curator-v5.py" -o "$tmp_curator"
+  grep -q 'A2A_RND_DISCUSSION_V1' "$tmp_director" || die "dedicated research-room marker missing"
   "$py" -m py_compile "$tmp_director" "$tmp_curator"
   install -o root -g tcagent -m 0750 "$tmp_director" "$director"
   install -o root -g tcagent -m 0750 "$tmp_curator" "$curator"
@@ -145,6 +147,9 @@ Environment=RND_V5_MAX_ACTIVE_SECONDS=5400
 Environment=RND_V5_SOURCE_REPO=yinchun6969/technocore-chat
 Environment=RND_V5_UPSTREAM_REPO=flop-labs/technocore-chat
 Environment=RND_V5_SOURCE_LOOKBACK=8
+Environment=RND_V5_DISCUSSION_ROOM=yinchun-a2a-rnd-v5
+Environment=RND_V5_DISCUSSION_ENABLED=1
+Environment=RND_V5_DISCUSSION_MAX_DAILY=8
 ExecStart=$py $director run
 Restart=always
 RestartSec=20
@@ -219,7 +224,19 @@ EOF
 set -Eeuo pipefail
 ls -lah "$root/rnd-v5-artifacts"
 EOF
-  chmod 0755 /usr/local/bin/tc-a2a-rnd-v5-{status,pause,resume,reset,artifacts}
+  cat > /usr/local/bin/tc-a2a-rnd-v5-room <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+set -a
+source /opt/technocore-a2a/.env
+set +a
+ROOM="${RND_V5_DISCUSSION_ROOM:-yinchun-a2a-rnd-v5}"
+BASE="${BASE:-https://technocore.chat}"
+echo "room=$ROOM"
+echo "url=$BASE/r/$ROOM"
+exec curl -fsS --retry 3 --connect-timeout 10 --max-time 30   "$BASE/r/$ROOM?format=json&limit=80"
+EOF
+  chmod 0755 /usr/local/bin/tc-a2a-rnd-v5-{status,pause,resume,reset,artifacts,room}
 
   cat > /usr/local/bin/tc-a2a-rnd-v5-rollback <<EOF
 #!/usr/bin/env bash
@@ -236,6 +253,7 @@ OLD_CURATOR_ENABLED="$old_curator_enabled"
 systemctl disable --now technocore-a2a-rnd-v5.service technocore-a2a-rnd-curator-v5.service 2>/dev/null || true
 rm -f "\$DIRECTOR_UNIT" "\$CURATOR_UNIT"
 rm -rf "\$ROOT/rnd-v5" "\$ROOT/rnd-v5-state" "\$ROOT/rnd-v5-artifacts"
+  rm -f /usr/local/bin/tc-a2a-rnd-v5-room
 if [ -f "\$BACKUP/prechange.tgz" ]; then
   tar -C / -xzf "\$BACKUP/prechange.tgz" \
     opt/technocore-a2a/rnd-v5 \
