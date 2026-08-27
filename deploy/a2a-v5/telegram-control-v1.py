@@ -131,6 +131,8 @@ def send(chat_id: int, text: str) -> None:
 NOTIFY_LABELS = {
     "rnd_objective_selected": "研究目标已选定",
     "scheduler_request_sent": "研究任务已发送给 Love8 Scout",
+    "scheduler_delivery_wait": "研究任务尚未在公共房间出现",
+    "workflow_stage_observed": "已观察到跨节点研究阶段",
     "director_wait": "当前工作流仍在处理中，新研究任务暂候",
     "active_request_expired": "旧工作流已超时，Director 准备继续调度",
     "workflow_active_expired": "旧工作流已超时，已释放研究调度",
@@ -169,6 +171,15 @@ def event_message(row: dict) -> str | None:
     active = compact(row.get("active"), 120)
     if active and event == "director_wait":
         lines.append(f"等待工作流：{active}")
+    stage = compact(row.get("stage"), 80)
+    if stage and event == "workflow_stage_observed":
+        lines.append(f"远端阶段：{stage}")
+        room = compact(row.get("room"), 120)
+        if room:
+            lines.append(f"来源房间：{room}")
+        lines.append("说明：这是公共房间中已观察到的签名阶段。")
+    if event == "scheduler_delivery_wait":
+        lines.append("说明：任务已由 Director 发出，但暂未观察到 Love8 创建 WORKFLOW_TASK；请检查 Love8 mailbox/runner。")
     if goal and event == "rnd_objective_selected":
         lines.append(f"目标：{goal}")
     if error:
@@ -258,10 +269,24 @@ def notify_events() -> None:
                         continue
                     message = event_message(row)
                     if message is not None:
-                        if str(row.get("event", "")) == "director_wait":
+                        event_name = str(row.get("event", ""))
+                        if event_name == "director_wait":
                             # Director writes this heartbeat repeatedly; notify once
                             # per active workflow instead of spamming every tick.
-                            key = "|".join((str(row.get("event", "")), compact(row.get("active"), 120)))
+                            key = "|".join((event_name, compact(row.get("active"), 120)))
+                        elif event_name in {
+                            "scheduler_request_sent",
+                            "rnd_objective_selected",
+                            "scheduler_delivery_wait",
+                            "workflow_stage_observed",
+                            "evidence_room_error",
+                        }:
+                            # The same milestone can appear in both provenance and
+                            # Director log; do not send it twice.
+                            key = "|".join(str(row.get(item, "")) for item in (
+                                "event", "request_id", "workflow_id", "task_id",
+                                "stage", "seq", "room", "active", "error",
+                            ))
                         else:
                             key = "|".join(str(row.get(item, "")) for item in (
                                 "ts", "event", "request_id", "workflow_id", "task_id",
