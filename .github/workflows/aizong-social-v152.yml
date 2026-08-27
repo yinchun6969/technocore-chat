@@ -1,0 +1,31 @@
+name: AIZONG Social v1.5.2 capacity-aware identity room smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/patch_aizong_social_v152.py"
+      - "scripts/test_aizong_social_v152.py"
+      - "scripts/upgrade_aizong_social_v152.sh"
+      - ".github/workflows/aizong-social-v152.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: python3 -m py_compile scripts/patch_aizong_social_v152.py scripts/test_aizong_social_v152.py
+      - name: Capacity behavior
+        run: python3 scripts/test_aizong_social_v152.py
+      - name: Installer syntax
+        run: bash -n scripts/upgrade_aizong_social_v152.sh
+      - name: Invariants
+        run: |
+          grep -q 'TC_HUB_CAPACITY_FALLBACK=d-aizong' scripts/upgrade_aizong_social_v152.sh
+          grep -q 'TC_HUB_CAPACITY_RETRY=21600' scripts/upgrade_aizong_social_v152.sh
+          grep -q 'capacity-fallback-existing' scripts/patch_aizong_social_v152.py
+          grep -q 'room limit reached' scripts/patch_aizong_social_v152.py
