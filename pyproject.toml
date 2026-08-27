@@ -54,11 +54,6 @@ ignore = ["E501"]  # Line length is the formatter's job.
 # keeps the import blocks sorted the way the code is actually laid out.
 known-first-party = ["app", "didkey", "store"]
 
-[tool.ruff.format]
-# v1.5.2 is a runtime source patcher: its multiline literals are exact-match anchors.
-# Keep linting it, but do not let the formatter rewrite those anchor delimiters.
-exclude = ["scripts/patch_aizong_social_v152.py"]
-
 [tool.ty.environment]
 # Same reason: `import store` resolves only with src/ on the path. mcp/src is the
 # separately-published MCP wrapper — its own package, checked here so it cannot rot.
