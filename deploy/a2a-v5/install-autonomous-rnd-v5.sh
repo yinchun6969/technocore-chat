@@ -93,6 +93,12 @@ install_ai2ai() {
   grep -q 'WORKFLOW_V3_REVIEWER_BEGIN' "$root/bin/agent.py" || die "AI2AI workflow v3 Reviewer marker missing"
   grep -q 'A2A_WIRE_GUARD_V20' "$root/bin/agent.py" || die "AI2AI wire guard marker missing"
 
+  # v5 services run as tcagent.  The pre-existing Reviewer runtime may have
+  # been installed as root-only; grant tcagent read-only access without making
+  # the runtime writable by the service account.
+  chgrp tcagent "$root/bin/agent.py" || die "Cannot assign tcagent read group to agent.py"
+  chmod 0640 "$root/bin/agent.py"
+
   stamp_dir="$(backup_path ai2ai)"
   backup_ai2ai "$stamp_dir"
   write_manifest "$stamp_dir" ai2ai
