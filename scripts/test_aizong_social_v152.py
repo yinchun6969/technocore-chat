@@ -9,6 +9,7 @@ import os
 import tempfile
 import time
 import urllib.error
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +54,7 @@ def capacity_error() -> urllib.error.HTTPError:
         "https://technocore.chat/r/aizong",
         400,
         "Bad Request",
-        {},
+        Message(),
         io.BytesIO(b"400 room limit reached (20480 is the cap, and this would be a new one)"),
     )
 
