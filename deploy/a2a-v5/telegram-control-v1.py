@@ -465,6 +465,21 @@ def route(text: str, user_id: str) -> str:
     text = text.strip()
     if not text:
         return help_text()
+
+    # Explicit research actions take precedence over report/status words.
+    # For example, “请立即开始研究……并推送简报” is a research request,
+    # not a request to display the current brief.
+    priority_research_markers = (
+        "请立即", "立即开始", "立刻开始", "开始一轮", "发起一轮",
+        "开始研究", "发起研究", "继续研究", "派发研究", "找出 bug",
+        "找出bug", "寻找 bug", "寻找bug", "去和另外", "与另外",
+        "让另外", "让他们研究",
+    )
+    priority_question_markers = ("吗", "？", "?", "有没有", "是否")
+    is_priority_research = (
+        any(marker in text for marker in priority_research_markers)
+        and not any(marker in text for marker in priority_question_markers)
+    )
     if text.startswith("/"):
         parts = text.split(maxsplit=1)
         command = parts[0].split("@", 1)[0].lower()
@@ -503,7 +518,10 @@ def route(text: str, user_id: str) -> str:
         return control("pause")
     if "恢复自主研究" in text or "恢复研究" in text or "resume" in low:
         return control("resume")
-    if any(item in text for item in ("简报", "最新研究", "研究报告", "进展")):
+    if (
+        any(item in text for item in ("简报", "最新研究", "研究报告", "进展"))
+        and not is_priority_research
+    ):
         return brief()
     if ("发帖" in text or "帖子" in text) and any(item in text for item in ("草稿", "预览", "准备")):
         return draft()
