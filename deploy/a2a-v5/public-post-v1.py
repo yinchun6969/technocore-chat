@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Explicit, signed public-room posting for the existing AI2AI identity.
+"""Explicit, signed public-room posting for an existing agent identity.
 
-This is intentionally a separate command from the autonomous R&D director.
-It never creates an identity, room, mailbox, or service.  A post is previewed
-by default and is sent only with the explicit --send flag.
+The normal command previews by default.  The companion *-send wrapper provides
+the deliberate one-line send path requested by the operator.  This module never
+creates an identity, room, mailbox, or service.
 """
 
 from __future__ import annotations
@@ -21,12 +21,12 @@ import unicodedata
 from pathlib import Path
 from urllib.parse import quote
 
-ROOT = Path("/opt/technocore-a2a")
+ROOT = Path(os.environ.get("A2A_ROOT", "/opt/technocore-a2a"))
 ENV_FILE = ROOT / ".env"
-RUNTIME = ROOT / "bin" / "agent.py"
+RUNTIME = ROOT / "bin" / ("agent.py" if ROOT.name == "technocore-a2a" else "collab.py")
 ROOM_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 MAX_TEXT = 4000
-USER_AGENT = "technocore-a2a-public-post-v1/1.0"
+USER_AGENT = "technocore-public-post-v1/1.1"
 SENSITIVE_MARKERS = (
     "-----begin",
     "api_key",
@@ -71,14 +71,14 @@ def read_env(path: Path) -> dict[str, str]:
 def load_agent():
     os.environ.update(read_env(ENV_FILE))
     if not RUNTIME.is_file():
-        die(f"missing existing AI2AI runtime: {RUNTIME}")
-    spec = importlib.util.spec_from_file_location("existing_ai2ai_agent", RUNTIME)
+        die(f"missing existing agent runtime: {RUNTIME}")
+    spec = importlib.util.spec_from_file_location("existing_public_post_agent", RUNTIME)
     if spec is None or spec.loader is None:
-        die("cannot load existing AI2AI runtime")
+        die("cannot load existing agent runtime")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    if getattr(module, "AGENT", "") != "ai2ai":
-        die("public posting is restricted to AGENT_NAME=ai2ai")
+    if getattr(module, "AGENT", "") not in {"ai2ai", "love8"}:
+        die("public posting is restricted to the existing AI2AI or Love8 identity")
     for name in ("DID", "BASE", "sign", "reserve", "requests"):
         if not hasattr(module, name):
             die(f"existing runtime does not expose required signer primitive: {name}")
@@ -88,6 +88,10 @@ def load_agent():
 agent = load_agent()
 DID = str(agent.DID)
 BASE = str(agent.BASE).rstrip("/")
+DEFAULT_ROOM = os.environ.get("PUBLIC_POST_ROOM", "arxiv-jam")
+AGENT_NAME = str(getattr(agent, "AGENT", "unknown"))
+ROLE = str(getattr(agent, "ROLE", ""))
+
 if not DID.startswith("did:key:"):
     die("existing runtime did is not a did:key identity")
 
@@ -108,15 +112,20 @@ def validate_room(room: str) -> str:
 
 
 def read_text(args: argparse.Namespace) -> str:
-    if (args.text is None) == (args.file is None):
-        die("provide exactly one of --text or --file")
-    if args.file is not None:
+    positional = list(args.message or [])
+    if positional and (args.text is not None or args.file is not None):
+        die("use one message source: positional text, --text, or --file")
+    if positional:
+        raw = " ".join(positional)
+    elif args.file is not None:
         try:
             raw = Path(args.file).read_text(encoding="utf-8")
         except OSError as exc:
             die(f"cannot read text file: {exc}")
-    else:
+    elif args.text is not None:
         raw = args.text
+    else:
+        die("provide a message as text, --text, or --file")
     text = sweep(str(raw))
     if not text:
         die("text is empty after official sanitization")
@@ -188,6 +197,8 @@ def preview(room: str, text: str) -> int:
     if len(str(nonce)) > 19:
         die("candidate nonce exceeds the official 19-digit limit")
     print("mode: preview")
+    print(f"agent: {AGENT_NAME}")
+    print(f"role: {ROLE}")
     print(f"room: {room}")
     print(f"did: {DID}")
     print(f"base: {BASE}")
@@ -196,7 +207,7 @@ def preview(room: str, text: str) -> int:
     print(f"text_sha256: {text_hash(text)}")
     print("text_after_official_sweep:")
     print(text)
-    print("nothing was published; add --send to perform the signed POST")
+    print("nothing was published; add --send or use tc-a2a-public-post-send to publish")
     return 0
 
 
@@ -236,6 +247,7 @@ def post(room: str, text: str) -> int:
                 pass
             match = re.search(r"(?:seq|sequence)[=: ]+([0-9]+)", response.text[:300], re.I)
             print("published: yes")
+            print(f"agent: {AGENT_NAME}")
             print(f"room: {room}")
             print(f"did: {DID}")
             print(f"nonce: {nonce_text}")
@@ -256,12 +268,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Preview or explicitly publish one signed message to a public Technocore room."
     )
-    parser.add_argument("--room", required=True, help="public room, for example arxiv-jam")
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--text", help="one message; it is officially sanitized before signing")
+    parser.add_argument("message", nargs="*", help="one-line message; quote it when it contains spaces")
+    parser.add_argument("--room", default=DEFAULT_ROOM, help="room, default: arxiv-jam")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--text", help="message text; it is sanitized before signing")
     source.add_argument("--file", help="UTF-8 file containing one public message")
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--preview", action="store_true", help="show the exact signed text; default")
+    mode.add_argument("--preview", action="store_true", help="show the exact text; default")
     mode.add_argument("--send", action="store_true", help="perform the signed public POST")
     args = parser.parse_args()
     room = validate_room(args.room)
