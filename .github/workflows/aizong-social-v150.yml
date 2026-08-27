@@ -1,0 +1,42 @@
+name: aizong Social v1.5.0 ai2ai collaboration hub smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/aizong_social.py"
+      - "scripts/patch_aizong_social_v130.py"
+      - "scripts/patch_aizong_social_v131.py"
+      - "scripts/patch_aizong_social_v140.py"
+      - "scripts/patch_aizong_social_v141.py"
+      - "scripts/patch_aizong_social_v142.py"
+      - "scripts/patch_aizong_social_v150.py"
+      - "scripts/upgrade_aizong_social_v142.sh"
+      - "scripts/upgrade_aizong_social_v150.sh"
+      - "scripts/test_aizong_social_v150.py"
+      - ".github/workflows/aizong-social-v150.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ai2ai-hub-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: |
+          python3 -m py_compile scripts/patch_aizong_social_v150.py scripts/test_aizong_social_v150.py
+      - name: Hub behavior
+        run: python3 scripts/test_aizong_social_v150.py
+      - name: Upgrade script syntax
+        run: bash -n scripts/upgrade_aizong_social_v150.sh
+      - name: Hub invariants
+        run: |
+          grep -q 'TC_HOME_ROOM=ai2ai' scripts/upgrade_aizong_social_v150.sh
+          grep -q 'TC_HUB_INVITES_DAILY_CAP=2' scripts/upgrade_aizong_social_v150.sh
+          grep -q 'TC_HUB_PEER_INVITE_COOLDOWN=604800' scripts/upgrade_aizong_social_v150.sh
+          grep -q 'TC_HUB_ROOM_DAILY_CAP=6' scripts/upgrade_aizong_social_v150.sh
+          grep -q 'not a trust boundary' scripts/patch_aizong_social_v150.py
+          grep -q 'Do not optimize public behavior for faucets' scripts/test_aizong_social_v150.py
+          grep -q '_ensure_home_room' scripts/patch_aizong_social_v150.py
