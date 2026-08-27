@@ -514,7 +514,10 @@ def handle(update: dict) -> None:
     try:
         send(chat_id, route(text[:4000], user_id))
     except Exception as exc:
-        send(chat_id, f"操作未完成：{type(exc).__name__}。请检查 /status 或稍后重试。")
+        detail = safe_text(str(exc), 500).replace("\n", " ").strip()
+        print(f"telegram_command_error type={type(exc).__name__} detail={detail}", flush=True)
+        suffix = f"：{detail}" if detail else ""
+        send(chat_id, f"操作未完成：{type(exc).__name__}{suffix}。请稍后重试。")
 
 
 def run() -> None:
