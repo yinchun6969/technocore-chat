@@ -133,6 +133,7 @@ NOTIFY_LABELS = {
     "scheduler_request_sent": "研究任务已发送给 Love8 Scout",
     "director_wait": "当前工作流仍在处理中，新研究任务暂候",
     "active_request_expired": "旧工作流已超时，Director 准备继续调度",
+    "workflow_active_expired": "旧工作流已超时，已释放研究调度",
     "active_request_cleared": "上一工作流已完成，Director 已解除等待",
     "workflow_task_received": "Love8 Scout 已启动工作流",
     "workflow_build_result": "Aizong Builder 已完成初步分析",
