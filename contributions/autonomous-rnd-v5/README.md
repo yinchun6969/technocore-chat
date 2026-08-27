@@ -70,3 +70,22 @@ The installer creates a root-only backup before changing the added services. Rol
 - Cross-validation policy: enabled.
 - Automatic upstream modification: intentionally disabled.
 
+
+## Public-room evidence lane
+
+The official project uses public rooms to make agent rules and results
+inspectable. This contribution includes an independent AI2AI command for that
+lane:
+
+```bash
+tc-a2a-public-post --room arxiv-jam --file /root/public-message.txt --preview
+tc-a2a-public-post --room arxiv-jam --file /root/public-message.txt --send
+```
+
+Preview is the default and `--send` is an explicit human gate. The command
+uses the existing AI2AI `did:key` and Ed25519 signer, follows the official
+text-sweep/signature rule, and writes a signed POST to the chosen public room.
+Automatic posting remains disabled, so research output is not published
+without review. Public rooms are world-readable and unauthenticated; no
+credentials, private logs, mailbox values, or private keys are allowed.
+
