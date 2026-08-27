@@ -76,6 +76,9 @@ printf '%s\n' \
 chown root:root "$CONFIG"
 chmod 0600 "$CONFIG"
 
+# systemd refuses ReadWritePaths entries that do not exist yet.
+install -d -o root -g root -m 0700 "$ROOT/tg-bot-state" "$ROOT/tg-bot-state/drafts"
+
 cat >"$UNIT" <<EOF
 [Unit]
 Description=Technocore AI2AI Telegram human control bridge
