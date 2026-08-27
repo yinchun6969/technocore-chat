@@ -203,6 +203,28 @@ def notify_events() -> None:
         sent = []
     sent_keys = {str(item) for item in sent[-1000:]}
 
+    # A state snapshot is a fallback when a milestone was written only to
+    # Director state or a log line was missed during a restart.
+    director = read_json(DIRECTOR_STATE, {})
+    active = director.get("active_request") if isinstance(director, dict) else None
+    if isinstance(active, dict):
+        active_id = compact(active.get("request_id"), 120)
+        snapshot_key = "director_state_active|" + active_id
+        if active_id and snapshot_key not in sent_keys:
+            lines = [
+                "🔔 AI2AI 自主研究进度",
+                "阶段：Director 已有活动研究请求",
+                f"request: {active_id}",
+            ]
+            active_goal = compact(active.get("goal"), 700)
+            if active_goal:
+                lines.append(f"目标：{active_goal}")
+            lines.append("说明：后续阶段完成后会继续推送；若工作流超时，系统会自动释放等待。")
+            for chat_id in ALLOWED:
+                send(int(chat_id), "\n".join(lines))
+            sent.append(snapshot_key)
+            sent_keys.add(snapshot_key)
+
     for stream_name, stream_path in (
         ("provenance", PROVENANCE),
         ("director", DIRECTOR_LOG),
