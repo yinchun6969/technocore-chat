@@ -592,8 +592,13 @@ def tick() -> None:
     if daily_count(state, day) >= number("RND_V5_MAX_DAILY", 1, 8):
         save_state(state)
         return
+    # Read the human queue before the autonomous cadence gate. A direct
+    # Telegram research request is an explicit operator action: it still
+    # respects the daily cap and the single-active-workflow rule, but it must
+    # not wait behind the normal autonomous interval.
+    manual, manual_offset = next_manual_request(state)
     last_sent = float(state.get("last_request_at", 0) or 0)
-    if last_sent and now() - last_sent < number("RND_V5_MIN_GAP_SECONDS", 1800, 86400):
+    if last_sent and now() - last_sent < number("RND_V5_MIN_GAP_SECONDS", 1800, 86400) and not manual:
         save_state(state)
         return
     evidence_text, evidence_sha256 = evidence_pack()
@@ -603,7 +608,6 @@ def tick() -> None:
         log("director_wait", active=active)
         save_state(state)
         return
-    manual, manual_offset = next_manual_request(state)
     request_source = "autonomous-director"
     if manual:
         goal = clean(manual.get("goal"), 1700)
