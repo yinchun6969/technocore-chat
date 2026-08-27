@@ -1,0 +1,25 @@
+name: Identity Room final dispatcher smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/upgrade_agent_identity_room_final.sh"
+      - ".github/workflows/identity-room-final-dispatch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Shell syntax
+        run: bash -n scripts/upgrade_agent_identity_room_final.sh
+      - name: Three architecture routes
+        run: |
+          grep -q 'upgrade_agent_identity_room_v151.sh' scripts/upgrade_agent_identity_room_final.sh
+          grep -q 'upgrade_love8_identity_room_v250.sh' scripts/upgrade_agent_identity_room_final.sh
+          grep -q 'install-identity-room-v5.2.sh' scripts/upgrade_agent_identity_room_final.sh
+          grep -q '不要加 sudo' scripts/upgrade_agent_identity_room_final.sh
