@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -26,7 +27,7 @@ ENV_FILE = ROOT / ".env"
 RUNTIME = ROOT / "bin" / ("agent.py" if ROOT.name == "technocore-a2a" else "collab.py")
 ROOM_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 MAX_TEXT = 4000
-USER_AGENT = "technocore-public-post-v1/1.1"
+USER_AGENT = "technocore-public-post-v1/1.2"
 SENSITIVE_MARKERS = (
     "-----begin",
     "api_key",
@@ -79,7 +80,7 @@ def load_agent():
     spec.loader.exec_module(module)
     if getattr(module, "AGENT", "") not in {"ai2ai", "love8"}:
         die("public posting is restricted to the existing AI2AI or Love8 identity")
-    for name in ("DID", "BASE", "sign", "reserve", "requests"):
+    for name in ("DID", "BASE", "sign", "requests"):
         if not hasattr(module, name):
             die(f"existing runtime does not expose required signer primitive: {name}")
     return module
@@ -166,13 +167,53 @@ def remote_floor(room: str) -> int:
     return max(values or [0])
 
 
+def local_nonce_path() -> Path:
+    existing = getattr(agent, "NONCES", None)
+    if existing:
+        return Path(existing)
+    return ROOT / "state" / "public-post-nonces.json"
+
+
 def local_floor(room: str) -> int:
-    path = Path(getattr(agent, "NONCES", ROOT / "state" / "nonces.json"))
+    path = local_nonce_path()
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
         return int(value.get(room, 0) or 0) if isinstance(value, dict) else 0
     except (OSError, ValueError, TypeError):
         return 0
+
+
+def reserve_fallback(room: str, floor: int) -> int:
+    """Reserve a nonce when a deployed runtime has no public reserve helper."""
+    path = local_nonce_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".lock")
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            value = {}
+        if not isinstance(value, dict):
+            value = {}
+        previous = int(value.get(room, 0) or 0)
+        nonce = max(time.time_ns() // 1000, previous + 1, floor + 1)
+        value[room] = nonce
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(
+            json.dumps(value, ensure_ascii=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        return nonce
+
+
+def reserve_nonce(room: str, floor: int) -> int:
+    helper = getattr(agent, "reserve", None)
+    if callable(helper):
+        return int(helper(room, floor))
+    return reserve_fallback(room, floor)
 
 
 def candidate_nonce(room: str, remote: int | None) -> int:
@@ -215,7 +256,7 @@ def post(room: str, text: str) -> int:
     last_error = ""
     for attempt in range(2):
         floor = remote_floor(room)
-        nonce = int(agent.reserve(room, floor))
+        nonce = reserve_nonce(room, floor)
         nonce_text = str(nonce)
         if not nonce_text.isdigit() or len(nonce_text) > 19:
             die("reserved nonce is outside the official 1-19 digit range")
