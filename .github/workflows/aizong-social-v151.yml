@@ -1,0 +1,35 @@
+name: Social v1.5.1 identity-named collaboration room smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/patch_aizong_social_v151.py"
+      - "scripts/test_aizong_social_v151.py"
+      - "scripts/upgrade_agent_identity_room_v151.sh"
+      - ".github/workflows/aizong-social-v151.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  identity-room-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: python3 -m py_compile scripts/patch_aizong_social_v151.py scripts/test_aizong_social_v151.py
+      - name: Identity room behavior
+        run: python3 scripts/test_aizong_social_v151.py
+      - name: Upgrade script syntax
+        run: bash -n scripts/upgrade_agent_identity_room_v151.sh
+      - name: Identity room invariants
+        run: |
+          grep -q 'TC_AGENT_NICK' scripts/upgrade_agent_identity_room_v151.sh
+          grep -q 'TC_HUB_MIN_RELATIONSHIP_AGE=21600' scripts/upgrade_agent_identity_room_v151.sh
+          grep -q 'TC_HUB_MIN_INBOUND=3' scripts/upgrade_agent_identity_room_v151.sh
+          grep -q 'TC_HUB_MIN_OUTBOUND=3' scripts/upgrade_agent_identity_room_v151.sh
+          grep -q 'love8-social-v2/scripts/upgrade_love8_identity_room_v250.sh' scripts/upgrade_agent_identity_room_v151.sh
+          grep -q '_identity_room_candidate' scripts/patch_aizong_social_v151.py
+          grep -q '00..99' scripts/patch_aizong_social_v151.py
+          grep -q 'deep continuity' scripts/patch_aizong_social_v151.py
