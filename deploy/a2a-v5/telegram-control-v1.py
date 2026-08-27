@@ -507,6 +507,9 @@ def handle(update: dict) -> None:
 def run() -> None:
     STATE.mkdir(parents=True, exist_ok=True)
     DRAFTS.mkdir(parents=True, exist_ok=True)
+    if not NOTIFY_STATE.exists() and PROVENANCE.is_file():
+        # Do not replay historical milestones on the first upgrade.
+        write_json(NOTIFY_STATE, {"offset": PROVENANCE.stat().st_size, "sent": []})
     offset_value = read_json(OFFSET, {"offset": 0})
     offset = int(offset_value.get("offset", 0)) if isinstance(offset_value, dict) else 0
     while True:
