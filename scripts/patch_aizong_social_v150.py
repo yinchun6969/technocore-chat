@@ -42,7 +42,7 @@ def patch_source(source: str) -> str:
         "hub-policy",
     )
 
-    helpers = r'''
+    helpers = r"""
 
 
 def _hub_enabled() -> bool:
@@ -273,7 +273,7 @@ def _hub_action_rank(
     author = str(action.get("peer_author", ""))
     home_bias = 0 if room == _home_room_name() and author.startswith("did:key:") else 1
     return (base[0], home_bias, base[1], base[2], base[3])
-'''
+"""
 
     source = _replace_once(
         source,
@@ -286,7 +286,7 @@ def _hub_action_rank(
         source,
         '    room_cap = _strategy_limit("TC_STRATEGY_ROOM_DAILY_CAP", 4, 1, 24)\n',
         '    room_cap = _strategy_limit("TC_STRATEGY_ROOM_DAILY_CAP", 4, 1, 24)\n'
-        '    if room == _home_room_name():\n'
+        "    if room == _home_room_name():\n"
         '        room_cap = _strategy_limit("TC_HUB_ROOM_DAILY_CAP", 6, 1, 12)\n',
         "home-room-cap",
     )
@@ -295,9 +295,9 @@ def _hub_action_rank(
         source,
         '    _note_endpoint_success(state, "network")\n    log(\n',
         '    _note_endpoint_success(state, "network")\n'
-        '    _ensure_home_room(base, nick, did, key, state, dry_run=args.dry_run)\n'
-        '    rooms = _hub_rooms(rooms, args.rooms)\n'
-        '    log(\n',
+        "    _ensure_home_room(base, nick, did, key, state, dry_run=args.dry_run)\n"
+        "    rooms = _hub_rooms(rooms, args.rooms)\n"
+        "    log(\n",
         "home-room-bootstrap-and-scan",
     )
 
