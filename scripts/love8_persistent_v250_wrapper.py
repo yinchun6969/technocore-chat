@@ -110,7 +110,6 @@ def select_room(
     guard, cfg: dict[str, str], identity_state: dict[str, Any]
 ) -> tuple[str, str, int]:
     base = room_base(cfg)
-    did = str(cfg.get("DID", ""))
     persisted = str(identity_state.get("room", "") or "").strip().lower()
     candidates: list[str] = []
     if valid_room(persisted) and candidate_belongs_to_base(persisted, base):
@@ -162,17 +161,11 @@ def mature_peer(contact: dict[str, Any], cfg: dict[str, str], now: int | None = 
         return False
 
     brain = contact.get("brain", {}) if isinstance(contact.get("brain"), dict) else {}
-    if int(brain.get("trust_score", 0) or 0) < int(
-        cfg.get("PERSIST_DEEP_MIN_TRUST", "55")
-    ):
+    if int(brain.get("trust_score", 0)) < int(cfg.get("PERSIST_DEEP_MIN_TRUST", "55")):
         return False
-    if int(brain.get("scam_risk", 100) or 100) > int(
-        cfg.get("PERSIST_DEEP_MAX_RISK", "25")
-    ):
+    if int(brain.get("scam_risk", 100)) > int(cfg.get("PERSIST_DEEP_MAX_RISK", "25")):
         return False
-    if int(brain.get("bot_probability", 100) or 100) > int(
-        cfg.get("PERSIST_DEEP_MAX_BOT", "60")
-    ):
+    if int(brain.get("bot_probability", 100)) > int(cfg.get("PERSIST_DEEP_MAX_BOT", "60")):
         return False
     return True
 
