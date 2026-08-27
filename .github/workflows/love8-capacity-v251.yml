@@ -1,0 +1,30 @@
+name: Love8 Persistent v2.5.1 capacity-aware identity room smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/love8_persistent_v251_wrapper.py"
+      - "scripts/test_love8_capacity_v251.py"
+      - "scripts/upgrade_love8_identity_room_v251.sh"
+      - ".github/workflows/love8-capacity-v251.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: python3 -m py_compile scripts/love8_persistent_v251_wrapper.py scripts/test_love8_capacity_v251.py
+      - name: Capacity behavior
+        run: python3 scripts/test_love8_capacity_v251.py
+      - name: Installer syntax
+        run: bash -n scripts/upgrade_love8_identity_room_v251.sh
+      - name: Invariants
+        run: |
+          grep -q 'capacity-fallback-mailbox' scripts/love8_persistent_v251_wrapper.py
+          grep -q 'PERSIST_CAPACITY_RETRY.*21600' scripts/upgrade_love8_identity_room_v251.sh
+          grep -q 'room limit reached' scripts/love8_persistent_v251_wrapper.py
