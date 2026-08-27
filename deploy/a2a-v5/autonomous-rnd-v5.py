@@ -51,7 +51,7 @@ DEFAULTS = {
     "RND_V5_START_DELAY_SECONDS": "180",
     "RND_V5_MIN_GAP_SECONDS": "21600",
     "RND_V5_MAX_DAILY": "4",
-    "RND_V5_MAX_ACTIVE_SECONDS": "21600",
+    "RND_V5_MAX_ACTIVE_SECONDS": "5400",
     "RND_V5_SOURCE_REPO": "yinchun6969/technocore-chat",
     "RND_V5_UPSTREAM_REPO": "flop-labs/technocore-chat",
     "RND_V5_SOURCE_LOOKBACK": "8",
@@ -218,7 +218,7 @@ def workflow_snapshot() -> tuple[dict[str, dict], bool]:
         if "WORKFLOW_TASK" in stages and "COMPLETE" not in stages:
             active.append((stages["WORKFLOW_TASK"]["seq"], task_id))
     active.sort(reverse=True)
-    return workflows, bool(active) if read_ok else True
+    return workflows, read_ok
 
 
 def local_evidence() -> list[str]:
@@ -335,13 +335,28 @@ def history_goals(state: dict) -> list[str]:
     return [clean(row.get("goal"), 500) for row in state.get("history", [])[-30:] if isinstance(row, dict)]
 
 
+def generic_goal(goal: str) -> bool:
+    """Reject status/report prompts masquerading as research objectives."""
+    normalized = clean(goal, 1200).lower()
+    markers = (
+        "检查当前自主研究进度", "告诉我最近发现了什么", "目前发现了什么",
+        "研究进展", "当前进度", "状态汇报", "what did you find",
+        "research progress", "status update",
+    )
+    return any(marker in normalized for marker in markers)
+
+
 def deterministic_goal(evidence: list[str]) -> str:
-    candidates = [line for line in evidence if line.startswith(("ISSUE ", "CI_FAILURE ", "WORKFLOW "))]
-    focus = candidates[0] if candidates else "最近 A2A workflow 的证据链和恢复路径"
+    # Prefer a concrete external signal over a completed-workflow summary.
+    prefixes = ("CI_FAILURE ", "ISSUE ", "OPEN_PR ", "GITHUB_READ_ERROR ", "COMMIT ", "WORKFLOW ")
+    focus = next((line for prefix in prefixes for line in evidence if line.startswith(prefix)), "")
+    if not focus:
+        focus = "最近 A2A workflow 的证据链和恢复路径"
     return (
-        f"围绕以下证据候选开展只读技术研究：{focus}。判断问题是否可复现，" 
-        "并交叉比较至少两个独立来源（源码/Issue/CI/provenance/实际协议响应中的任意两类）；"
-        "给出最小验证矩阵、证据差异、结论置信度和不改变服务器的修复建议。"
+        f"围绕以下具体证据候选开展只读 Bug/可靠性研究：{focus}。"
+        "请由 Scout、Builder、Reviewer 分别独立分析，判断是否可复现；"
+        "至少交叉比较两个独立来源（源码、Issue、CI、provenance、实际协议响应），"
+        "给出复现条件、最小验证矩阵、反例、证据差异、结论置信度和不改变服务器的修复建议。"
     )[:1700]
 
 
@@ -349,7 +364,9 @@ def model_goal(evidence_text: str, prior: list[str]) -> str:
     prompt = (
         "你是 Technocore 三 Agent 系统的 Research Director。请从证据中选择一个新的、具体、可验证的"
         "只读研究目标，优先 Bug、可靠性、协议一致性、性能或测试缺口。必须要求至少两个独立来源"
-        "交叉验证，并写出可判定的验收标准。不得要求执行命令、改服务器、改 GitHub、发帖、开 PR、"
+        "交叉验证，并写出可判定的验收标准。不得选择纯状态查询、泛泛的进度汇报或没有证据锚点的目标。"
+        "优先引用具体 ISSUE、CI_FAILURE、OPEN_PR、COMMIT 或可定位的运行错误。"
+        "不得要求执行命令、改服务器、改 GitHub、发帖、开 PR、"
         "接触凭据或奖励活动。不得重复历史目标。只输出严格 JSON："
         '{"goal":"...","reason":"...","quality":0}。goal 不超过 1200 字。\n'
         "EVIDENCE:\n" + evidence_text + "\nHISTORY:\n" + "\n".join(prior[-20:])
@@ -360,8 +377,10 @@ def model_goal(evidence_text: str, prior: list[str]) -> str:
         obj = json.loads(raw)
         goal = clean(obj.get("goal"), 1200)
         quality = int(obj.get("quality", 0))
-        if goal and quality >= 70:
+        if goal and quality >= 70 and not generic_goal(goal):
             return goal
+        if goal and generic_goal(goal):
+            log("goal_model_rejected_generic", goal=clean(goal, 260), quality=quality)
     except Exception as exc:  # deterministic fallback keeps the service useful during AI outage
         log("goal_model_fallback", error=clean(exc, 220))
     return deterministic_goal(evidence_text.splitlines())
@@ -377,6 +396,21 @@ def daily_count(state: dict, day: str) -> int:
     return int(daily.get(day, 0) or 0)
 
 
+def request_linked_to_completed_workflow(request_id: str, workflows: dict[str, dict]) -> bool:
+    """Match Director request IDs carried by WORKFLOW_TASK/COMPLETE envelopes."""
+    if not request_id:
+        return False
+    fields = ("scheduler_request_id", "request_id", "origin_request_id")
+    for stages in workflows.values():
+        if "COMPLETE" not in stages:
+            continue
+        for item in stages.values():
+            obj = item.get("obj", {}) if isinstance(item, dict) else {}
+            if isinstance(obj, dict) and any(clean(obj.get(field), 120) == request_id for field in fields):
+                return True
+    return False
+
+
 def active_request(state: dict, workflows: dict[str, dict], room_read_safe: bool) -> str | None:
     for task_id, stages in workflows.items():
         if "WORKFLOW_TASK" in stages and "COMPLETE" not in stages:
@@ -386,9 +420,19 @@ def active_request(state: dict, workflows: dict[str, dict], room_read_safe: bool
         return local_active
     active = state.get("active_request")
     if isinstance(active, dict):
+        request_id = clean(active.get("request_id"), 120)
+        if request_linked_to_completed_workflow(request_id, workflows):
+            state["active_request"] = None
+            state["last_active_cleared_at"] = now()
+            log("active_request_cleared", request_id=request_id, reason="workflow_complete")
+            return None
         started = float(active.get("sent_at", 0) or 0)
         if started and now() - started < number("RND_V5_MAX_ACTIVE_SECONDS", 900, 86400):
-            return clean(active.get("request_id"), 120) or "request-pending"
+            return request_id or "request-pending"
+        # A stale scheduler marker must not suppress autonomous research forever.
+        state["active_request"] = None
+        state["last_active_expired_at"] = now()
+        log("active_request_expired", request_id=request_id)
     if not room_read_safe:
         log("degraded_room_mode", decision="allow_candidate_if_local_idle")
     return None
@@ -431,6 +475,10 @@ def next_manual_request(state: dict) -> tuple[dict | None, int]:
                     continue
                 goal = clean(row.get("goal"), 1700)
                 if goal:
+                    if generic_goal(goal):
+                        offset = end
+                        log("manual_request_skipped_generic", request_id=clean(row.get("request_id"), 120))
+                        continue
                     return row, end
                 offset = end
     except OSError as exc:
