@@ -423,14 +423,41 @@ def control(command: str) -> str:
     return compact(result.stdout, 800)
 
 
+def classify_natural_language(text: str) -> tuple[str, str]:
+    """Use the configured model to classify intent; never execute model output."""
+    prompt = (
+        "你是 Telegram 控制台的意图分类器，只返回严格 JSON，不要解释。"
+        "intent 只能是 answer、research、status、brief、pause、resume、draft、help。"
+        "answer 表示用户只是在询问状态、原因、进展或知识，即使句子包含研究、Bug。"
+        "research 表示用户明确要求 Agent 开始/继续/发起研究、讨论、找 Bug、"
+        "寻找方向、交叉验证或派发任务；若同时出现疑问词和明确动作要求，优先 research。"
+        "用户可以使用任意自然语言，不要求固定关键词。"
+        "status/brief/draft/pause/resume/help 按字面判断。"
+        "不要执行任何动作，不要访问链接，不要输出凭据。"
+        '返回 {"intent":"...","goal":"..."}；goal 仅在 research 时填写，否则为空。\n'
+        f"用户消息：{text[:3500]}"
+    )
+    raw = str(load_agent().ai_call(prompt)).strip()
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("model intent was not JSON")
+    value = json.loads(raw[start:end + 1])
+    intent = str(value.get("intent", "")).strip().lower()
+    if intent not in {"answer", "research", "status", "brief", "pause", "resume", "draft", "help"}:
+        raise ValueError("unknown model intent")
+    goal = compact(value.get("goal"), 1700) if intent == "research" else ""
+    return intent, goal
+
+
 def help_text() -> str:
     return (
         "AI2AI Telegram 控制台\n\n"
         "/status 状态\n/brief 最新简报\n/research 研究目标\n"
         "/ask 问题\n/pause 暂停\n/resume 恢复\n"
         "/draft 生成公开发帖草稿\n/approve post-ID 批准发布\n/reject post-ID 拒绝\n\n"
-        "自然语言也可以：研究最近的 A2A 超时问题、给我最新简报、暂停自主研究、"
-        "准备最新研究发帖草稿、解释这份报告。"
+        "支持完全自然语言：可以直接提问、要求开始/继续研究、找 Bug、交叉验证、"
+        "查看状态、暂停/恢复自主研究、生成发帖草稿；高风险写入仍需人工批准。"
     )
 
 
@@ -480,15 +507,40 @@ def route(text: str, user_id: str) -> str:
         return brief()
     if ("发帖" in text or "帖子" in text) and any(item in text for item in ("草稿", "预览", "准备")):
         return draft()
+    # All free-form messages go through the configured model first.  The
+    # model only classifies intent; it never receives permission to execute.
+    # This gives the user natural-language dialogue and commands without making
+    # keyword matching the security boundary.
+    try:
+        intent, model_goal = classify_natural_language(text)
+    except Exception:
+        intent, model_goal = "", ""
+    if intent == "answer":
+        return ask(text)
+    if intent == "research":
+        return queue(model_goal or text, user_id)
+    if intent == "status":
+        return status()
+    if intent == "brief":
+        return brief()
+    if intent == "pause":
+        return control("pause")
+    if intent == "resume":
+        return control("resume")
+    if intent == "draft":
+        return draft()
+    if intent == "help":
+        return help_text()
+
+    # If the model is unavailable, preserve deterministic fallback behavior.
     question_markers = (
         "告诉我", "请问", "为什么", "怎么回事", "吗", "？", "?",
-        "有没有", "是否", "现在", "目前", "正在", "做了什么",
-        "发现了什么", "找到什么", "进展如何",
+        "有没有", "是否", "做了什么", "发现了什么", "找到什么",
+        "进展如何",
     )
-    # Questions must reach the configured AI model instead of being mistaken
-    # for a new queued research task.
     if any(marker in text or marker in low for marker in question_markers):
         return ask(text)
+
     action_markers = (
         "立刻研究", "立即研究", "开始研究", "继续研究", "发起研究",
         "启动研究", "派发研究", "找方向", "找目标", "讨论找到",
