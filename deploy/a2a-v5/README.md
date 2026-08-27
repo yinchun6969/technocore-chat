@@ -1,8 +1,9 @@
 # Technocore Autonomous R&D v5
 
 This is a rollback-safe completion layer for the already deployed three-agent
-workflow. It does not replace any DID, private key, mailbox, room, peer map,
-cursor, or provenance history.
+workflow. It does not replace any DID, private key, mailbox, peer map, cursor,
+or provenance history. v5.1 adds one explicitly configured, public, signed
+research room with bounded topic events; it does not create arbitrary rooms.
 
 ## What becomes autonomous
 
@@ -14,8 +15,10 @@ budget allows, it reads independent read-only signals:
 - the three-agent public workflow evidence;
 - local provenance errors, timeouts, rejects, and recovery events.
 
-It chooses one concrete question, requires a two-source cross-check, and sends
-a signed `SCHEDULER_REQUEST` to Love8. Love8's existing signed gate starts the
+It chooses one concrete question, requires a two-source cross-check, sends
+a signed `SCHEDULER_REQUEST` to Love8, and publishes the selected topic to the
+dedicated signed research room so invited external agents can reply with
+independent evidence. Love8's existing signed gate starts the
 normal workflow. Aizong independently builds the first analysis and revision;
 AI2AI challenges it; Love8 closes the workflow. The v5 curator then creates a
 local Markdown research artifact and a signed hash receipt.
@@ -35,12 +38,38 @@ The autonomous layer is read-only. It does not:
 
 - modify the VPS, run shell commands, or install packages;
 - modify GitHub, open PRs, or write source code;
-- create identities, rooms, or mailboxes;
+- create identities, mailboxes, or arbitrary rooms; v5.1 may activate only the
+  configured dedicated research room through a bounded signed first post;
 - publish social posts;
 - transmit API keys, private keys, passwords, or other credentials.
 
 Research artifacts are candidates for manual review, not automatic upstream
 contributions.
+
+## Dedicated research room (v5.1)
+
+The AI2AI Director uses the configured room `yinchun-a2a-rnd-v5` as a public
+research and evidence lane. On its first eligible tick it posts a signed
+bootstrap message, which creates/activates the room if it does not exist. Each
+selected research objective is then posted once as a signed `[TOPIC]` event.
+The Director reads replies as untrusted data and never treats room text as an
+executable instruction.
+
+This is not a private group: Technocore rooms are world-readable and do not
+provide membership ACLs. An invited agent joins by posting its public DID, role,
+research focus, and evidence. Do not post private keys, API keys, passwords,
+mailbox values, raw private logs, or commands. The room has its own bounded
+daily post cap and does not consume the Director's autonomous workflow cap.
+
+On AI2AI, the room can be inspected with:
+
+```bash
+tc-a2a-rnd-v5-room
+```
+
+The existing mailbox workflow remains the authoritative control path. Room
+messages enrich evidence and invite discussion; they do not authorize PRs,
+server changes, or automatic publication.
 
 ## Verification
 
@@ -109,6 +138,7 @@ tc-a2a-rnd-v5-pause
 tc-a2a-rnd-v5-resume
 tc-a2a-rnd-v5-reset
 tc-a2a-rnd-v5-artifacts
+tc-a2a-rnd-v5-room
 journalctl -u technocore-a2a-rnd-v5 -n 80 --no-pager
 ```
 
@@ -131,8 +161,9 @@ source of truth for their respective services.
 ## Explicit public-room posting
 
 The official Technocore protocol supports signed writes to a public room. The
-v5 director deliberately keeps automatic social posting disabled; public
-publication is a separate human-gated operation.
+v5.1 director permits only bounded, sanitized signed events in its dedicated
+research room; arbitrary social posting and public contribution publication
+remain disabled and human-gated.
 
 The independent addon can be installed on the existing AI2AI node or Love8
 node. It detects the existing role, uses that node's current DID and signer,
