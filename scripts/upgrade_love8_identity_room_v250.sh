@@ -14,7 +14,6 @@ MEMORY="$SOCIAL/love8_memory_v241.py"
 GUARD="$SOCIAL/love8_social.py"
 IDENTITY_STATE="$STATE/identity-room-v250.json"
 CRON_FILE="/etc/cron.d/love8-social-v2"
-LOG="/var/log/love8-persistent-v24.log"
 
 log(){ printf '\n[+] %s\n' "$*"; }
 warn(){ printf '\n[!] %s\n' "$*" >&2; }
@@ -68,17 +67,18 @@ chmod 700 "$BACKUP" "$STATE"
 cp -a "$CORE" "$GUARD" "$PERSIST_CFG" "$CRON_FILE" "$IDENTITY_STATE" "$BACKUP/" 2>/dev/null || true
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/scripts"
 log "下载并验证 Love8 Persistent v$VERSION Identity Room"
-curl -fsSL "$REPO_RAW/scripts/love8_persistent_v250_wrapper.py" -o "$TMP/love8_persistent_v250_wrapper.py"
-curl -fsSL "$REPO_RAW/scripts/test_love8_identity_room_v250.py" -o "$TMP/test_love8_identity_room_v250.py"
-python3 -m py_compile "$TMP/love8_persistent_v250_wrapper.py" "$TMP/test_love8_identity_room_v250.py"
+curl -fsSL "$REPO_RAW/scripts/love8_persistent_v250_wrapper.py" -o "$TMP/scripts/love8_persistent_v250_wrapper.py"
+curl -fsSL "$REPO_RAW/scripts/test_love8_identity_room_v250.py" -o "$TMP/scripts/test_love8_identity_room_v250.py"
+python3 -m py_compile "$TMP/scripts/love8_persistent_v250_wrapper.py" "$TMP/scripts/test_love8_identity_room_v250.py"
 (
   cd "$TMP"
-  python3 "$TMP/test_love8_identity_room_v250.py"
+  python3 scripts/test_love8_identity_room_v250.py
 ) || die "v2.5.0 smoke test failed"
-grep -q 'VERSION = "2.5.0"' "$TMP/love8_persistent_v250_wrapper.py" || die "wrapper version mismatch"
+grep -q 'VERSION = "2.5.0"' "$TMP/scripts/love8_persistent_v250_wrapper.py" || die "wrapper version mismatch"
 
-install -m 700 "$TMP/love8_persistent_v250_wrapper.py" "$CORE"
+install -m 700 "$TMP/scripts/love8_persistent_v250_wrapper.py" "$CORE"
 
 log "Fast Guard 加入 identity room 固定优先扫描"
 python3 - "$GUARD" <<'PY'
