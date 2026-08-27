@@ -41,6 +41,9 @@ LOVE8_DID = "did:key:z6MkfGtYxQg6e2u7aLBJVzowxgtgTmYzzXo227W9AvVQwq3p"
 AIZONG_DID = "did:key:z6MktU13Pf4jVf6Ck5D3pwNYX2PVUAfNC61ytciyb4Coyh7e"
 AI2AI_DID = "did:key:z6Mkrs9FviuKvQnAnexWfF1RWduNh6CqydrMAw8RUo73zoje"
 AIZONG_ROOM = "d-aizong"
+# Love8's already-deployed signed scheduler gate uses this stable protocol
+# origin.  Keep the v5 director compatible with that gate during upgrades.
+SCHEDULER_ORIGIN = "ai2ai-scheduler"
 
 DEFAULTS = {
     "RND_V5_TICK_SECONDS": "90",
@@ -406,7 +409,7 @@ def send_request(goal: str, evidence_sha256: str, cycle: int) -> dict:
             "输出要求：Builder 给出独立分析与证据；Reviewer 必须逐项质疑并寻找反例；"
             "最终只形成研究档案，不自动修改任何上游或服务器。"
         )[:1900],
-        origin="ai2ai-rnd-v5",
+        origin=SCHEDULER_ORIGIN,
         scheduler_did=AI2AI_DID,
         scheduler_role="reviewer-research-director",
         research_mode="bug-analysis-cross-validation",
@@ -489,9 +492,12 @@ def change_pause(paused: bool) -> None:
 def reset_active() -> None:
     state = load_state()
     state["active_request"] = None
+    # This is an explicit operator retry after a rejected/undelivered request.
+    # It does not touch history, mailbox cursors, or provenance.
+    state["last_request_at"] = 0
     state["last_error"] = ""
     save_state(state)
-    print("active request marker reset; existing mailbox/provenance was preserved")
+    print("active request marker reset; next eligible tick may retry; existing mailbox/provenance was preserved")
 
 
 def daemon() -> None:
