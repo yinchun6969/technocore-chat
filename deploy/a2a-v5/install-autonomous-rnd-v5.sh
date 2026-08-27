@@ -253,11 +253,16 @@ EOF
 
   systemctl disable --now technocore-a2a-scheduler.service technocore-a2a-curator.service 2>/dev/null || true
   systemctl daemon-reload
-  systemctl enable --now technocore-a2a-rnd-v5.service technocore-a2a-rnd-curator-v5.service
+  # --now only starts an inactive unit; it does not reload an already-running
+  # process after its Python files have been replaced.  Explicitly restart
+  # both v5 units so an upgrade cannot leave the old director in memory.
+  systemctl enable technocore-a2a-rnd-v5.service technocore-a2a-rnd-curator-v5.service
+  systemctl restart technocore-a2a-rnd-v5.service technocore-a2a-rnd-curator-v5.service
   sleep 4
   systemctl is-active --quiet technocore-a2a.service || die "existing AI2AI Reviewer stopped; run tc-a2a-rnd-v5-rollback"
   systemctl is-active --quiet technocore-a2a-rnd-v5.service || die "v5 director failed; run tc-a2a-rnd-v5-rollback"
   systemctl is-active --quiet technocore-a2a-rnd-curator-v5.service || die "v5 curator failed; run tc-a2a-rnd-v5-rollback"
+  echo "v5_services_restarted=1"
   echo "=== AI2AI AUTONOMOUS R&D v5 READY ==="
   tc-a2a-rnd-v5-status
   echo "backup=$stamp_dir"
