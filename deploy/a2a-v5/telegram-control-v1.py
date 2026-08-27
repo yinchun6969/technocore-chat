@@ -480,7 +480,20 @@ def route(text: str, user_id: str) -> str:
         return brief()
     if ("发帖" in text or "帖子" in text) and any(item in text for item in ("草稿", "预览", "准备")):
         return draft()
-    if "研究" in text or "交叉验证" in text or "bug" in low:
+    question_markers = (
+        "告诉我", "请问", "为什么", "怎么回事", "吗", "？", "?",
+        "有没有", "是否", "现在", "目前", "正在", "做了什么",
+        "发现了什么", "找到什么", "进展如何",
+    )
+    # Questions must reach the configured AI model instead of being mistaken
+    # for a new queued research task.
+    if any(marker in text or marker in low for marker in question_markers):
+        return ask(text)
+    if (
+        text.startswith(("研究", "请研究", "分析", "检查", "排查", "验证", "寻找", "查找"))
+        or low.startswith(("找bug", "找 bug", "analyze ", "research ", "check "))
+        or "交叉验证" in text
+    ):
         return queue(text, user_id)
     return ask(text)
 
