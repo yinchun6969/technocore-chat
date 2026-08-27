@@ -1,0 +1,10 @@
+extend = "pyproject.toml"
+
+# These two files intentionally contain exact source-string fixtures used by the
+# deterministic v1.5.0 -> v1.5.1 patch-chain tests. Keep them linted, but do not
+# let the formatter rewrite fixture quoting/line layout and invalidate patch matching.
+[format]
+exclude = [
+    "scripts/patch_aizong_social_v151.py",
+    "scripts/test_aizong_social_v151.py",
+]
