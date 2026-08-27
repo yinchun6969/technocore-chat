@@ -8,7 +8,7 @@ CONFIG="/etc/technocore-a2a-telegram.env"
 UNIT="/etc/systemd/system/technocore-a2a-telegram.service"
 STATUS="/usr/local/bin/tc-a2a-telegram-status"
 ROLLBACK="/usr/local/bin/tc-a2a-telegram-rollback"
-REPO_RAW="https://raw.githubusercontent.com/yinchun6969/technocore-chat/c91991013858dba00ce7772a2fdc8436d947a990/deploy/a2a-v5"
+REPO_RAW="https://raw.githubusercontent.com/yinchun6969/technocore-chat/b5901824d52d6630a47de68bf67934bb67075ea6/deploy/a2a-v5"
 BACKUP_ROOT="/root/tc-a2a-telegram-backups"
 
 die() {
