@@ -258,7 +258,7 @@ def notify_events() -> None:
                         continue
                     message = event_message(row)
                     if message is not None:
-                        if event == "director_wait":
+                        if str(row.get("event", "")) == "director_wait":
                             # Director writes this heartbeat repeatedly; notify once
                             # per active workflow instead of spamming every tick.
                             key = "|".join((event, compact(row.get("active"), 120)))
