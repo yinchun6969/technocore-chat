@@ -1,0 +1,31 @@
+name: AI2AI Identity Room v5.2.1 capacity-aware smoke
+
+on:
+  pull_request:
+    paths:
+      - "deploy/a2a-v5/identity-room-v5.2.1.py"
+      - "deploy/a2a-v5/test-identity-room-v5.2.1.py"
+      - "deploy/a2a-v5/install-identity-room-v5.2.1.sh"
+      - ".github/workflows/a2a-identity-room-v521.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python syntax
+        run: python3 -m py_compile deploy/a2a-v5/identity-room-v5.2.1.py deploy/a2a-v5/test-identity-room-v5.2.1.py
+      - name: Capacity behavior
+        run: python3 deploy/a2a-v5/test-identity-room-v5.2.1.py
+      - name: Installer syntax
+        run: bash -n deploy/a2a-v5/install-identity-room-v5.2.1.sh
+      - name: Invariants
+        run: |
+          grep -q 'capacity-fallback-existing' deploy/a2a-v5/identity-room-v5.2.1.py
+          grep -q '20480 is the cap' deploy/a2a-v5/identity-room-v5.2.1.py
+          grep -q 'OWNED_ROOM' deploy/a2a-v5/install-identity-room-v5.2.1.sh
+          grep -q 'OnUnitActiveSec=6h' deploy/a2a-v5/install-identity-room-v5.2.1.sh
