@@ -47,7 +47,9 @@ def patched_module() -> tuple[Any, str]:
 def test_patch_contract_and_inherited_safety() -> None:
     mod, source = patched_module()
     assert mod.VERSION == "1.5.0"
-    assert "/r/ai2ai is aizong's operator-selected public collaboration home room" in mod.BRAIN_SYSTEM
+    assert (
+        "/r/ai2ai is aizong's operator-selected public collaboration home room" in mod.BRAIN_SYSTEM
+    )
     assert "not a trust boundary" in mod.BRAIN_SYSTEM
     assert "Never invent a public memory" in mod.BRAIN_SYSTEM
     assert "Do not optimize public behavior for faucets" in mod.BRAIN_SYSTEM
@@ -195,7 +197,9 @@ def test_empty_room_gets_one_signed_bootstrap() -> None:
     try:
         mod.http_json = lambda url: {"messages": [], "last_seq": 0}
 
-        def fake_signed(base: str, did: str, key: str, room: str, text: str, current: dict[str, Any]) -> dict[str, Any]:
+        def fake_signed(
+            base: str, did: str, key: str, room: str, text: str, current: dict[str, Any]
+        ) -> dict[str, Any]:
             signed_calls.append((room, text))
             return {"last_seq": 42}
 
