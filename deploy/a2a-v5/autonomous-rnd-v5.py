@@ -25,6 +25,7 @@ STATE = ROOT / "rnd-v5-state"
 STATE_FILE = STATE / "director.json"
 LOG_FILE = STATE / "director.log"
 LOCK_FILE = STATE / "director.lock"
+MANUAL_QUEUE = STATE / "manual-requests.jsonl"
 
 spec = importlib.util.spec_from_file_location("existing_a2a_agent", RUNTIME)
 if spec is None or spec.loader is None:
@@ -111,6 +112,8 @@ def load_state() -> dict:
         "history": [],
         "daily": {},
         "active_request": None,
+        "manual_queue_offset": 0,
+        "last_manual_request_id": "",
     }
     try:
         value = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -391,7 +394,52 @@ def active_request(state: dict, workflows: dict[str, dict], room_read_safe: bool
     return None
 
 
-def send_request(goal: str, evidence_sha256: str, cycle: int) -> dict:
+def next_manual_request(state: dict) -> tuple[dict | None, int]:
+    """Read one human-approved topic without executing any user-supplied command."""
+    try:
+        size = MANUAL_QUEUE.stat().st_size
+    except OSError:
+        return None, int(state.get("manual_queue_offset", 0) or 0)
+    try:
+        offset = int(state.get("manual_queue_offset", 0) or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    if offset < 0 or offset > size:
+        offset = 0
+    try:
+        with MANUAL_QUEUE.open("r", encoding="utf-8") as handle:
+            handle.seek(offset)
+            while True:
+                start = handle.tell()
+                line = handle.readline()
+                if not line:
+                    offset = handle.tell()
+                    break
+                end = handle.tell()
+                if not line.endswith("\n"):
+                    # The bot may still be appending this JSONL record.
+                    offset = start
+                    break
+                try:
+                    row = json.loads(line)
+                except (ValueError, TypeError):
+                    offset = end
+                    log("manual_request_malformed", offset=end)
+                    continue
+                if not isinstance(row, dict):
+                    offset = end
+                    continue
+                goal = clean(row.get("goal"), 1700)
+                if goal:
+                    return row, end
+                offset = end
+    except OSError as exc:
+        log("manual_queue_read_error", error=clean(exc, 220))
+    state["manual_queue_offset"] = offset
+    return None, offset
+
+
+def send_request(goal: str, evidence_sha256: str, cycle: int, request_source: str = "autonomous-director") -> dict:
     peers = agent.peers()
     mailbox = peers.get(LOVE8_DID)
     if not mailbox:
@@ -415,6 +463,7 @@ def send_request(goal: str, evidence_sha256: str, cycle: int) -> dict:
         research_mode="bug-analysis-cross-validation",
         evidence_sha256=evidence_sha256,
         cycle=cycle,
+        request_source=request_source,
         policy="read_only=true;auto_pr=false;auto_server_change=false;auto_social_post=false",
     )
     agent.signed_post(mailbox, payload)
@@ -448,22 +497,38 @@ def tick() -> None:
         log("director_wait", active=active)
         save_state(state)
         return
-    goal = model_goal(evidence_text, history_goals(state))
+    manual, manual_offset = next_manual_request(state)
+    request_source = "autonomous-director"
+    if manual:
+        goal = clean(manual.get("goal"), 1700)
+        request_source = "telegram-human"
+    else:
+        goal = model_goal(evidence_text, history_goals(state))
     if not safe_goal(goal):
         state["last_error"] = "candidate rejected by read-only safety policy"
-        ledger("rnd_candidate_rejected", reason=state["last_error"], goal_sha256=hashlib.sha256(goal.encode()).hexdigest())
+        ledger(
+            "rnd_candidate_rejected",
+            reason=state["last_error"],
+            goal_sha256=hashlib.sha256(goal.encode()).hexdigest(),
+            request_source=request_source,
+        )
+        if manual:
+            state["manual_queue_offset"] = manual_offset
         save_state(state)
         return
     cycle = daily_count(state, day) + 1
-    sent = send_request(goal, evidence_sha256, cycle)
+    sent = send_request(goal, evidence_sha256, cycle, request_source=request_source)
     state["last_request_at"] = sent["sent_at"]
     state["active_request"] = sent
+    if manual:
+        state["manual_queue_offset"] = manual_offset
+        state["last_manual_request_id"] = clean(manual.get("request_id"), 120)
     state["daily"][day] = cycle
     history = state.setdefault("history", [])
     history.append({**sent, "cycle": cycle, "day": day})
     state["history"] = history[-200:]
     state["last_error"] = ""
-    ledger("rnd_objective_selected", request_id=sent["request_id"], goal=goal[:500], evidence_sha256=evidence_sha256, cycle=cycle)
+    ledger("rnd_objective_selected", request_id=sent["request_id"], goal=goal[:500], evidence_sha256=evidence_sha256, cycle=cycle, request_source=request_source)
     ledger("scheduler_request_sent", request_id=sent["request_id"], peer_did=LOVE8_DID, mode="bug-analysis-cross-validation")
     log("scheduler_request_sent", request_id=sent["request_id"], cycle=cycle)
     save_state(state)
@@ -478,6 +543,8 @@ def status() -> None:
     print("daily:", json.dumps(state.get("daily", {}), sort_keys=True))
     print("last_request_at:", state.get("last_request_at", 0))
     print("active_request:", json.dumps(state.get("active_request"), ensure_ascii=True))
+    print("manual_queue_offset:", state.get("manual_queue_offset", 0))
+    print("last_manual_request_id:", state.get("last_manual_request_id", ""))
     print("last_error:", clean(state.get("last_error"), 500))
     print("policy: read-only, cross-validation>=2 sources, degraded-room-fallback, no-auto-PR, no-auto-server-change")
 
