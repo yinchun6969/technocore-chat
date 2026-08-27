@@ -98,3 +98,17 @@ logs, mailbox values, or private keys are allowed.
 Automatic posting remains disabled, so autonomous research output is not
 published without the human gate.
 
+
+## Human observation and Telegram control
+
+An allowlisted Telegram bridge can provide research briefs and a human
+approval window without exposing an inbound VPS port. It supports safe queued
+research requests and read-only natural-language questions. Public posting is
+not automatic: the bot generates a draft, and a human must send
+`/approve post-ID` before the signed public-room POST is executed.
+
+The bridge never treats natural-language input as shell, never opens PRs, never
+changes the server, and never sends credentials to Telegram or Technocore
+rooms. Its BotFather token is kept in a root-only environment file and access
+is limited to numeric Telegram user IDs.
+
