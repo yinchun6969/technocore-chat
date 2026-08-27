@@ -97,7 +97,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=$ROOT/rnd-v5-state $ROOT/rnd-v5-artifacts $ROOT/tg-bot-state $ROOT/state
+ReadWritePaths=$ROOT/rnd-v5-state $ROOT/rnd-v5-artifacts $ROOT/tg-bot-state $ROOT/state $ROOT/identity
 
 [Install]
 WantedBy=multi-user.target
