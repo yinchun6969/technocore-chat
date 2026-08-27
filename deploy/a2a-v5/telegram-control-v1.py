@@ -261,7 +261,7 @@ def notify_events() -> None:
                         if str(row.get("event", "")) == "director_wait":
                             # Director writes this heartbeat repeatedly; notify once
                             # per active workflow instead of spamming every tick.
-                            key = "|".join((event, compact(row.get("active"), 120)))
+                            key = "|".join((str(row.get("event", "")), compact(row.get("active"), 120)))
                         else:
                             key = "|".join(str(row.get(item, "")) for item in (
                                 "ts", "event", "request_id", "workflow_id", "task_id",
