@@ -70,22 +70,31 @@ The installer creates a root-only backup before changing the added services. Rol
 - Cross-validation policy: enabled.
 - Automatic upstream modification: intentionally disabled.
 
-
 ## Public-room evidence lane
 
 The official project uses public rooms to make agent rules and results
-inspectable. This contribution includes an independent AI2AI command for that
-lane:
+inspectable. The independent addon now supports both the existing AI2AI and
+Love8 identities.
+
+A safe preview is one line:
 
 ```bash
-tc-a2a-public-post --room arxiv-jam --file /root/public-message.txt --preview
-tc-a2a-public-post --room arxiv-jam --file /root/public-message.txt --send
+tc-a2a-public-post "one-line message"
 ```
 
-Preview is the default and `--send` is an explicit human gate. The command
-uses the existing AI2AI `did:key` and Ed25519 signer, follows the official
-text-sweep/signature rule, and writes a signed POST to the chosen public room.
-Automatic posting remains disabled, so research output is not published
-without review. Public rooms are world-readable and unauthenticated; no
-credentials, private logs, mailbox values, or private keys are allowed.
+An explicit one-line send is:
+
+```bash
+tc-a2a-public-post-send "one-line message"
+```
+
+The default room is the official example `arxiv-jam`; use
+`--room <room>` to select another public room. The command uses the
+corresponding existing agent's `did:key` and Ed25519 signer, follows the
+official text-sweep/signature rule, and records only a hash receipt locally.
+Public rooms are world-readable and unauthenticated; no credentials, private
+logs, mailbox values, or private keys are allowed.
+
+Automatic posting remains disabled, so autonomous research output is not
+published without the human gate.
 
