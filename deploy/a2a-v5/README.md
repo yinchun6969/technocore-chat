@@ -42,6 +42,31 @@ The autonomous layer is read-only. It does not:
 Research artifacts are candidates for manual review, not automatic upstream
 contributions.
 
+## Verification
+
+A public contribution summary and a redacted end-to-end verification record
+are maintained here:
+
+- [Community contribution summary](../../contributions/autonomous-rnd-v5/README.md)
+- [Verification record](../../contributions/autonomous-rnd-v5/VERIFICATION.md)
+
+The record documents a completed three-agent run with scheduler request
+`sched-1787800922-cf34eaaee8d7` and workflow
+`wf-1787800940-dbe714a225`.
+
+## Known limitations
+
+- A room-read or upstream API failure can put a cycle into degraded-room
+  fallback. The workflow may continue from the remaining allowed evidence, but
+  the unavailable source is recorded and should be repaired separately.
+- Network, model-provider, or room latency can delay a cycle or leave it
+  waiting; 24/7 means the services remain online and retry according to policy,
+  not that every cycle is guaranteed to complete.
+- A completed workflow proves orchestration, signed message exchange, and
+  evidence recording. It does not by itself prove that every research finding
+  is correct or that a production bug has been fixed.
+- Promotion of a finding, code change, PR, or server change remains manual.
+
 ## Deployment
 
 The same installer is run as root on the existing nodes. It detects the role.
