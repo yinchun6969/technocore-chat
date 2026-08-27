@@ -22,6 +22,7 @@ OFFSET = STATE / "offset.json"
 DRAFTS = STATE / "drafts"
 NOTIFY_STATE = STATE / "notify.json"
 PROVENANCE = ROOT / "state" / "provenance.jsonl"
+DIRECTOR_LOG = ROOT / "rnd-v5-state" / "director.log"
 DIRECTOR_STATE = ROOT / "rnd-v5-state" / "director.json"
 CURATOR_STATE = ROOT / "rnd-v5-state" / "curator.json"
 MANUAL_QUEUE = ROOT / "rnd-v5-state" / "manual-requests.jsonl"
@@ -171,62 +172,82 @@ def event_message(row: dict) -> str | None:
 
 
 def notify_events() -> None:
-    """Forward new signed provenance milestones to the allowlisted Telegram user."""
-    if not PROVENANCE.is_file():
-        return
+    """Forward new signed milestones from provenance and Director logs."""
     state = read_json(NOTIFY_STATE, {})
     if not isinstance(state, dict):
         state = {}
-    try:
-        offset = max(0, int(state.get("offset", 0)))
-    except (TypeError, ValueError):
-        offset = 0
+    offsets = state.get("offsets", {})
+    if not isinstance(offsets, dict):
+        offsets = {}
+    # Preserve the old single-file checkpoint after upgrading.
+    if "provenance" not in offsets:
+        try:
+            offsets["provenance"] = max(0, int(state.get("offset", 0)))
+        except (TypeError, ValueError):
+            offsets["provenance"] = 0
+    # Do not replay the existing Director log on the first multi-stream run.
+    if "director" not in offsets:
+        try:
+            offsets["director"] = DIRECTOR_LOG.stat().st_size
+        except OSError:
+            offsets["director"] = 0
     sent = state.get("sent", [])
     if not isinstance(sent, list):
         sent = []
     sent_keys = {str(item) for item in sent[-1000:]}
-    try:
-        size = PROVENANCE.stat().st_size
+
+    for stream_name, stream_path in (
+        ("provenance", PROVENANCE),
+        ("director", DIRECTOR_LOG),
+    ):
+        try:
+            size = stream_path.stat().st_size
+        except OSError:
+            continue
+        try:
+            offset = max(0, int(offsets.get(stream_name, 0)))
+        except (TypeError, ValueError):
+            offset = 0
         if offset > size:
             offset = 0
-        with PROVENANCE.open("rb") as handle:
-            handle.seek(offset)
-            while True:
-                line_start = handle.tell()
-                raw = handle.readline()
-                if not raw:
-                    break
-                line_end = handle.tell()
-                try:
-                    row = json.loads(raw.decode("utf-8"))
-                except (UnicodeDecodeError, ValueError):
+        try:
+            with stream_path.open("rb") as handle:
+                handle.seek(offset)
+                while True:
+                    line_start = handle.tell()
+                    raw = handle.readline()
+                    if not raw:
+                        break
+                    line_end = handle.tell()
+                    try:
+                        row = json.loads(raw.decode("utf-8"))
+                    except (UnicodeDecodeError, ValueError):
+                        offsets[stream_name] = line_end
+                        continue
+                    if not isinstance(row, dict):
+                        offsets[stream_name] = line_end
+                        continue
+                    message = event_message(row)
+                    if message is not None:
+                        key = "|".join(str(row.get(item, "")) for item in (
+                            "ts", "event", "request_id", "workflow_id", "task_id",
+                            "artifact_sha256", "error",
+                        ))
+                        if key not in sent_keys:
+                            try:
+                                for chat_id in ALLOWED:
+                                    send(int(chat_id), message)
+                            except Exception:
+                                # Retry this exact record on the next poll.
+                                offset = line_start
+                                break
+                            sent.append(key)
+                            sent_keys.add(key)
                     offset = line_end
-                    continue
-                if not isinstance(row, dict):
-                    offset = line_end
-                    continue
-                message = event_message(row)
-                if message is not None:
-                    key = "|".join(str(row.get(item, "")) for item in (
-                        "ts", "event", "request_id", "workflow_id", "task_id",
-                        "artifact_sha256", "error",
-                    ))
-                    if key not in sent_keys:
-                        try:
-                            for chat_id in ALLOWED:
-                                send(int(chat_id), message)
-                        except Exception:
-                            # Preserve the current line for a later retry.
-                            offset = line_start
-                            break
-                        sent.append(key)
-                        sent_keys.add(key)
-                offset = line_end
-    except OSError:
-        return
-    write_json(NOTIFY_STATE, {"offset": offset, "sent": sent[-1000:]})
-
-
+        except OSError:
+            continue
+        offsets[stream_name] = offset
+    write_json(NOTIFY_STATE, {"offsets": offsets, "sent": sent[-1000:]})
 def unit(unit_name: str) -> str:
     try:
         result = subprocess.run(
