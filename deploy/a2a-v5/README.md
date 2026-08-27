@@ -1,0 +1,104 @@
+# Technocore Autonomous R&D v5
+
+This is a rollback-safe completion layer for the already deployed three-agent
+workflow. It does not replace any DID, private key, mailbox, room, peer map,
+cursor, or provenance history.
+
+## What becomes autonomous
+
+AI2AI is the Research Director and Reviewer. Every six hours, while the daily
+budget allows, it reads independent read-only signals:
+
+- open issues and pull requests;
+- recent commits and failed GitHub Actions;
+- the three-agent public workflow evidence;
+- local provenance errors, timeouts, rejects, and recovery events.
+
+It chooses one concrete question, requires a two-source cross-check, and sends
+a signed `SCHEDULER_REQUEST` to Love8. Love8's existing signed gate starts the
+normal workflow. Aizong independently builds the first analysis and revision;
+AI2AI challenges it; Love8 closes the workflow. The v5 curator then creates a
+local Markdown research artifact and a signed hash receipt.
+
+The resulting loop is:
+
+`evidence -> objective -> signed request -> Builder analysis -> Reviewer challenge -> revision -> final assessment -> cross-validation artifact`
+
+The service is continuously online, but it is intentionally not a model call
+every second. Default policy is one new workflow per six hours and at most four
+per UTC day, with only one active workflow. This keeps 24/7 operation from
+turning into duplicate or runaway work.
+
+## Safety boundaries
+
+The autonomous layer is read-only. It does not:
+
+- modify the VPS, run shell commands, or install packages;
+- modify GitHub, open PRs, or write source code;
+- create identities, rooms, or mailboxes;
+- publish social posts;
+- transmit API keys, private keys, passwords, or other credentials.
+
+Research artifacts are candidates for manual review, not automatic upstream
+contributions.
+
+## Deployment
+
+The same installer is run as root on the existing nodes. It detects the role.
+Run in this order so the gate exists before the first autonomous request:
+
+1. Love8 (`freeSG01`): installs the signed scheduler gate and keeps the
+   no-systemd runner mode intact.
+2. Aizong (`1c2g4year`): compatibility-check only; the existing Builder is not
+   replaced.
+3. AI2AI (`甲骨文01`): installs the v5 Research Director and evidence curator,
+   then disables any older duplicate scheduler/curator services.
+
+```bash
+curl -fL --retry 5 --retry-delay 2 \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/a2a-autonomous-rnd-v5/deploy/a2a-v5/install-autonomous-rnd-v5.sh \
+  -o /tmp/install-autonomous-rnd-v5.sh
+bash -n /tmp/install-autonomous-rnd-v5.sh
+chmod 700 /tmp/install-autonomous-rnd-v5.sh
+bash /tmp/install-autonomous-rnd-v5.sh
+```
+
+The installer makes a root-only backup before changing anything:
+
+`/root/tc-a2a-autonomous-rnd-v5-backups/<role>/<UTC-stamp>/`
+
+On AI2AI rollback with `tc-a2a-rnd-v5-rollback`. On Love8 rollback with
+`tc-collab-rnd-v5-rollback`. Aizong has no new daemon to roll back.
+
+Rollback removes only the v5 added runtime and restores the prior unit/helper
+files. It intentionally preserves the existing cursor and provenance so old
+messages are not replayed.
+
+## Operations
+
+On AI2AI:
+
+```bash
+tc-a2a-rnd-v5-status
+tc-a2a-rnd-v5-pause
+tc-a2a-rnd-v5-resume
+tc-a2a-rnd-v5-reset
+tc-a2a-rnd-v5-artifacts
+journalctl -u technocore-a2a-rnd-v5 -n 80 --no-pager
+```
+
+The first status after installation normally shows an empty daily counter for
+up to 180 seconds. That is the startup guard. It should later show a signed
+request in `daily` and a `rnd_objective_selected` event in the AI2AI
+provenance ledger.
+
+On Love8, verify the gate and runner:
+
+```bash
+grep -E 'AUTONOMOUS_SCHEDULER_GATE_V29|SCHEDULER_REQUEST' \
+  /opt/technocore-collab/bin/collab.py
+tc-collab-process-status
+```
+
+On all nodes, the normal A2A status and the existing social status remain the
+source of truth for their respective services.
