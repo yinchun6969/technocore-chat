@@ -489,10 +489,16 @@ def route(text: str, user_id: str) -> str:
     # for a new queued research task.
     if any(marker in text or marker in low for marker in question_markers):
         return ask(text)
+    action_markers = (
+        "立刻研究", "立即研究", "开始研究", "继续研究", "发起研究",
+        "启动研究", "派发研究", "找方向", "找目标", "讨论找到",
+        "和另外", "与另外", "让他们研究", "让 agent 研究",
+    )
     if (
         text.startswith(("研究", "请研究", "分析", "检查", "排查", "验证", "寻找", "查找"))
         or low.startswith(("找bug", "找 bug", "analyze ", "research ", "check "))
         or "交叉验证" in text
+        or any(marker in text for marker in action_markers)
     ):
         return queue(text, user_id)
     return ask(text)
