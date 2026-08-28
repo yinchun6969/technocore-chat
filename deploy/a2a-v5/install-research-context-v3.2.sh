@@ -42,7 +42,24 @@ fi
 if [[ "$MODE" == install ]]; then
   config="/opt/technocore-a2a/.env"
   [[ -r "$config" ]] || { echo "AI2AI configuration is missing; no changes made" >&2; exit 1; }
-  agent_name="$(sed -n 's/^AGENT_NAME=["'"']\{0,1\}\([^"'"']*\)["'"']\{0,1\}[[:space:]]*$/\1/p' "$config" | head -n 1)"
+  # Parse data, never source .env or expand shell expressions in its values.
+  agent_name="$(python3 - "$config" <<'PY'
+import sys
+from pathlib import Path
+
+values = []
+for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    key, separator, value = line.partition("=")
+    if separator and key.strip() == "AGENT_NAME":
+        value = value.strip()
+        if len(value) >= 2 and value[0] in ("'", '"') and value[-1] == value[0]:
+            value = value[1:-1]
+        values.append(value)
+if len(values) != 1 or values[0] != "ai2ai":
+    sys.exit("AI2AI configuration required; no changes made")
+print("ai2ai")
+PY
+)"
   [[ "$agent_name" == ai2ai ]] || { echo "AI2AI configuration required; no changes made" >&2; exit 1; }
 fi
 
@@ -66,7 +83,8 @@ if [[ "$MODE" == audit ]]; then
   fetch_pinned "audit-research-rooms-v3.2.py" "d98ec5048176577c3fa0658ab11910cbb847caa87d43119fcd06c4b640aa7df4"
   args=("$stage/audit-research-rooms-v3.2.py" "--topic" "$TOPIC")
   ((READ_PUBLIC)) && args+=(--read-public-room)
-  exec python3 "${args[@]}"
+  python3 "${args[@]}"
+  exit 0
 fi
 
 fetch_pinned "research_context_v32.py" "e99374699198a72b31f18e6958bbf02c248523b216d39c67a0f4b683db95589a"

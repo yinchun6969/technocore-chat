@@ -109,6 +109,28 @@ The current screenshot proves stage delivery, not a new bug or component.
 
 `python3 -m unittest discover -s deploy/a2a-v5 -p 'test_research_context_v32.py' -v`
 
+### Installer hotfix (2026-08-28)
+
+The original installer failed in the AGENT_NAME preflight with a sed unmatched
+parenthesis error. Shell syntax checking alone did not catch it. The corrected
+installer parses only the exact AGENT_NAME field using Python, without sourcing
+the configuration or printing credentials. Missing/duplicate/wrong-node values
+fail before downloads or service changes. Core file pins and rollback are unchanged.
+Audit mode now returns normally so its EXIT trap removes temporary staging files.
+
+Corrected installer SHA256:
+`21a35cd5dc4d19a46134d34cb1eca2255f19e4775a7e9ecf85e1b32644a7297a`.
+
+Run both suites with:
+`python3 -m unittest discover -s deploy/a2a-v5 -p 'test_research*.py' -v`.
+All 41 offline tests pass (33 core tests and 8 shell-entry tests). Shell-entry
+tests exercise the real installer with relocated host paths, local pinned
+downloads and intercepted deploy/audit boundaries; they do not install on a VPS.
+They cover quoted/plain/CRLF configuration, invalid values, no shell expansion or
+secret output, nonroot/missing configuration, checksum failure, deploy failure,
+audit selection and staging cleanup. The separate transactional tests exercise
+the deploy helper with fake services. This is not live three-VPS acceptance.
+
 The offline suite tests source isolation, evidence budgeting, topic specificity,
 wire limits, the original Scout gate, exact workflow linkage, out-of-order stages,
 untrusted reply deduplication, Telegram content, screening, install idempotency,
