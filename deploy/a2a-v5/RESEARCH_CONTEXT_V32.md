@@ -55,12 +55,18 @@ version. No invitations or unsolicited DMs are sent by the audit.
 
 ## Deployment
 
-Use the immutable installer URL and SHA256 supplied with the release.
+Release ref: `3f5dd06df0784f8f0919265e49c055a5fd042fea`.
+The installer is hash-pinned to the four core files in that commit. Verify the
+installer itself before running it; its SHA256 is published with this release.
 
 - **AI2AI only:** `bash install-research-context-v3.2.sh`.
 - **Love8 and Aizong:** run the same downloaded installer with `--audit`.
   This reads local data only and changes no agent or service.
   Add `--read-public-room` after `--audit` for a bounded read-only room GET.
+
+The audit output is a readiness report, not proof of a live listener or room
+ownership. Invitations remain disabled until a specific recipient and room are
+confirmed from signed interaction history.
 
 The installer downloads hash-pinned files, parses/compiles patched code without
 importing `agent.py`, and refuses an unsupported layout. It backs up before
