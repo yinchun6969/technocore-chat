@@ -56,8 +56,8 @@ EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
 BACKUP="$backup"
-if [[ -f "$BACKUP/prechange.tgz" ]]; then
-  tar -C / -xzf "$BACKUP/prechange.tgz" \
+if [[ -f "\$BACKUP/prechange.tgz" ]]; then
+  tar -C / -xzf "\$BACKUP/prechange.tgz" \
     opt/technocore-a2a/rnd-v5/autonomous-rnd-v5.py \
     opt/technocore-a2a/rnd-v5/telegram-control-v1.py \
     etc/systemd/system/technocore-a2a-rnd-v5.service \
@@ -67,7 +67,7 @@ systemctl daemon-reload
 systemctl restart technocore-a2a-rnd-v5.service technocore-a2a-telegram.service 2>/dev/null || true
 echo "rollback=completed"
 echo "preserved=identity,mailbox,cursor,provenance,rnd-v5-state"
-echo "backup=$BACKUP"
+echo "backup=\$BACKUP"
 EOF
   chmod 0700 /usr/local/bin/tc-a2a-progress-fix-v3-rollback
 
@@ -143,14 +143,14 @@ EOF
 set -Eeuo pipefail
 BACKUP="$backup"
 ROOT="$root"
-if [[ -f "$BACKUP/prechange.tgz" ]]; then
-  tar -C / -xzf "$BACKUP/prechange.tgz" \
+if [[ -f "\$BACKUP/prechange.tgz" ]]; then
+  tar -C / -xzf "\$BACKUP/prechange.tgz" \
     opt/technocore-collab/.env \
     opt/technocore-collab/bin/collab.py \
     opt/technocore-collab/state/scheduler_gate.json \
     etc/systemd/system/technocore-collab.service 2>/dev/null || true
 fi
-if [[ "$(tr -d '\0' </proc/1/comm 2>/dev/null || true)" == "systemd" ]]; then
+if [[ "\$(tr -d '\0' </proc/1/comm 2>/dev/null || true)" == "systemd" ]]; then
   systemctl daemon-reload
   systemctl restart technocore-collab
 elif command -v tc-collab-stop >/dev/null 2>&1 && command -v tc-collab-start >/dev/null 2>&1; then
@@ -159,7 +159,7 @@ elif command -v tc-collab-stop >/dev/null 2>&1 && command -v tc-collab-start >/d
 fi
 echo "rollback=completed"
 echo "preserved=identity,mailbox,cursor,provenance"
-echo "backup=$BACKUP"
+echo "backup=\$BACKUP"
 EOF
   chmod 0700 /usr/local/bin/tc-collab-progress-fix-v3-rollback
 
