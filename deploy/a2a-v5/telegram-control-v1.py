@@ -151,6 +151,11 @@ NOTIFY_LABELS = {
     "director_error": "Director 运行出现错误",
     "rnd_director_error": "Director 运行出现错误",
     "receipt_publish_error": "研究凭证发布失败",
+    "rnd_discussion_posted": "研究议题已写入研究房间",
+    "discussion_posted": "研究议题已写入研究房间",
+    "discussion_room_bootstrap_error": "研究房间首帖失败",
+    "discussion_topic_post_error": "研究议题发布失败",
+    "discussion_room_read_error": "研究房间读取失败",
 }
 
 
@@ -280,17 +285,25 @@ def notify_events() -> None:
                             "scheduler_delivery_wait",
                             "workflow_stage_observed",
                             "evidence_room_error",
+                            "workflow_active_expired",
+                            "active_request_expired",
+                            "active_request_cleared",
+                            "discussion_posted",
+                            "discussion_room_bootstrap_error",
+                            "discussion_topic_post_error",
+                            "discussion_room_read_error",
                         }:
                             # The same milestone can appear in both provenance and
                             # Director log; do not send it twice.
                             key = "|".join(str(row.get(item, "")) for item in (
                                 "event", "request_id", "workflow_id", "task_id",
                                 "stage", "seq", "room", "active", "error",
+                                "nonce", "reason",
                             ))
                         else:
                             key = "|".join(str(row.get(item, "")) for item in (
                                 "ts", "event", "request_id", "workflow_id", "task_id",
-                                "artifact_sha256", "error",
+                                "artifact_sha256", "error", "nonce", "reason",
                             ))
                         if key not in sent_keys:
                             try:
