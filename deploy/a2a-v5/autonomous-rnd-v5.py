@@ -65,6 +65,9 @@ DEFAULTS = {
     "RND_V5_MIN_GAP_SECONDS": "21600",
     "RND_V5_MAX_DAILY": "4",
     "RND_V5_MAX_ACTIVE_SECONDS": "5400",
+    # A sent request that never becomes a signed public WORKFLOW_TASK may be retried
+    # after this bounded delivery window. This is separate from the normal 2h cadence.
+    "RND_V5_DELIVERY_TIMEOUT_SECONDS": "1800",
     "RND_V5_SOURCE_REPO": "yinchun6969/technocore-chat",
     "RND_V5_UPSTREAM_REPO": "flop-labs/technocore-chat",
     "RND_V5_SOURCE_LOOKBACK": "8",
@@ -146,10 +149,14 @@ def load_state() -> dict:
             "last_post_at": 0,
             "last_post_event": "",
             "last_post_hash": "",
+            "last_error": "",
+            "last_error_at": 0,
         },
         # Seen remote stages are notification checkpoints, not task state.
         "workflow_stage_seen": {},
         "delivery_alerts": {},
+        # A stale public workflow is reported once, not on every 90s heartbeat.
+        "expired_workflows": {},
     }
     try:
         value = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -327,12 +334,25 @@ def discussion_post(state: dict, text: str, event: str, dedupe_key: str) -> bool
     discussion["last_post_at"] = now()
     discussion["last_post_event"] = event
     discussion["last_post_hash"] = hashlib.sha256(clean_text.encode("utf-8")).hexdigest()
+    discussion["last_error"] = ""
+    discussion["last_error_at"] = 0
     if len(posted) > 400:
         discussion["posted"] = dict(list(posted.items())[-240:])
     ledger("rnd_discussion_posted", room=room, event=event, nonce=nonce_text,
            text_sha256=discussion["last_post_hash"], lane="dedicated-research-room")
     log("discussion_posted", room=room, event=event, nonce=nonce_text)
     return True
+
+
+def record_discussion_error(state: dict, event: str, exc: Exception) -> None:
+    discussion = state.setdefault("discussion", {})
+    if not isinstance(discussion, dict):
+        discussion = {}
+        state["discussion"] = discussion
+    detail = clean(f"{type(exc).__name__}: {exc}", 300)
+    discussion["last_error"] = detail
+    discussion["last_error_at"] = now()
+    log(event, room=discussion_room(), error=detail)
 
 
 def ensure_discussion_room(state: dict) -> None:
@@ -740,13 +760,18 @@ def workflow_started_at(task_id: str, stages: dict) -> float | None:
 
 def active_request(state: dict, workflows: dict[str, dict], room_read_safe: bool) -> str | None:
     max_active = number("RND_V5_MAX_ACTIVE_SECONDS", 900, 86400)
+    delivery_timeout = number("RND_V5_DELIVERY_TIMEOUT_SECONDS", 600, 7200)
     seen = state.setdefault("workflow_seen_at", {})
     if not isinstance(seen, dict):
         seen = {}
         state["workflow_seen_at"] = seen
+    expired = state.setdefault("expired_workflows", {})
+    if not isinstance(expired, dict):
+        expired = {}
+        state["expired_workflows"] = expired
 
-    # Public-room messages can outlive a broken workflow.  Apply the same
-    # maximum active age to the workflow itself, not only to the state marker.
+    # Public-room messages can outlive a broken workflow. Apply the maximum
+    # active age once per task; do not emit the same expiry on every heartbeat.
     for task_id, stages in workflows.items():
         if "WORKFLOW_TASK" not in stages or "COMPLETE" in stages:
             continue
@@ -761,14 +786,18 @@ def active_request(state: dict, workflows: dict[str, dict], room_read_safe: bool
                 seen[task_id] = started
         age = max(0, now() - started)
         if age >= max_active:
-            log(
-                "workflow_active_expired",
-                task_id=task_id,
-                age_seconds=int(age),
-                max_active_seconds=max_active,
-            )
+            if task_id not in expired:
+                expired[task_id] = now()
+                log(
+                    "workflow_active_expired",
+                    task_id=task_id,
+                    age_seconds=int(age),
+                    max_active_seconds=max_active,
+                )
             continue
         return task_id
+    if len(expired) > 500:
+        state["expired_workflows"] = dict(list(expired.items())[-300:])
 
     # Ledger-only activity is also bounded during a public-room outage.
     local_active = local_inflight(max_active)
@@ -783,12 +812,35 @@ def active_request(state: dict, workflows: dict[str, dict], room_read_safe: bool
             state["last_active_cleared_at"] = now()
             log("active_request_cleared", request_id=request_id, reason="workflow_complete")
             return None
-        started = float(active.get("sent_at", 0) or 0)
-        if started and now() - started < max_active:
+        try:
+            started = float(active.get("sent_at", 0) or 0)
+        except (TypeError, ValueError):
+            started = 0
+        age = max(0, now() - started) if started else 0
+
+        # If every required room read succeeded and Love8 has not produced a
+        # signed WORKFLOW_TASK for this request, release the marker and allow
+        # exactly one immediate retry. This prevents one lost mailbox delivery
+        # from blocking the autonomous loop for the full 2h cadence.
+        if started and room_read_safe and age >= delivery_timeout and not workflow_linked_to_request(workflows, request_id):
+            state["active_request"] = None
+            state["last_active_expired_at"] = now()
+            state["retry_after_delivery_timeout"] = True
+            log(
+                "active_request_expired",
+                request_id=request_id,
+                reason="delivery_timeout",
+                age_seconds=int(age),
+                delivery_timeout_seconds=delivery_timeout,
+            )
+            return None
+
+        if started and age < max_active:
             return request_id or "request-pending"
         # A stale scheduler marker must not suppress autonomous research forever.
         state["active_request"] = None
         state["last_active_expired_at"] = now()
+        state["retry_after_delivery_timeout"] = True
         log("active_request_expired", request_id=request_id, reason="max_active")
     if not room_read_safe:
         log("degraded_room_mode", decision="allow_candidate_if_local_idle")
@@ -889,7 +941,7 @@ def tick() -> None:
     try:
         ensure_discussion_room(state)
     except Exception as exc:
-        log("discussion_room_bootstrap_error", room=discussion_room(), error=clean(exc, 260))
+        record_discussion_error(state, "discussion_room_bootstrap_error", exc)
     day = utc_day()
     state["daily"] = {key: value for key, value in state.get("daily", {}).items() if key >= day}
     # Keep observing an in-flight workflow even during the autonomous
@@ -899,6 +951,7 @@ def tick() -> None:
     observe_workflow_stages(state, workflows)
     observe_scheduler_delivery(state, workflows)
     active = active_request(state, workflows, room_read_safe)
+    retry_after_delivery_timeout = bool(state.pop("retry_after_delivery_timeout", False))
     if active:
         log("director_wait", active=active)
         save_state(state)
@@ -909,7 +962,12 @@ def tick() -> None:
     # A direct Telegram research request remains subject to the daily cap and
     # single-active-workflow rule, but does not wait behind the normal gap.
     last_sent = float(state.get("last_request_at", 0) or 0)
-    if last_sent and now() - last_sent < number("RND_V5_MIN_GAP_SECONDS", 1800, 86400) and not manual:
+    if (
+        last_sent
+        and now() - last_sent < number("RND_V5_MIN_GAP_SECONDS", 1800, 86400)
+        and not manual
+        and not retry_after_delivery_timeout
+    ):
         save_state(state)
         return
     evidence_text, evidence_sha256 = evidence_pack(workflows, room_read_safe)
@@ -948,7 +1006,7 @@ def tick() -> None:
     try:
         post_discussion_topic(state, goal, sent["request_id"], cycle, evidence_sha256)
     except Exception as exc:
-        log("discussion_topic_post_error", room=discussion_room(), error=clean(exc, 260))
+        record_discussion_error(state, "discussion_topic_post_error", exc)
     log("scheduler_request_sent", request_id=sent["request_id"], cycle=cycle)
     save_state(state)
 
@@ -961,7 +1019,14 @@ def status() -> None:
     print("paused:", bool(state.get("paused")))
     print("daily:", json.dumps(state.get("daily", {}), sort_keys=True))
     print("last_request_at:", state.get("last_request_at", 0))
-    print("active_request:", json.dumps(state.get("active_request"), ensure_ascii=True))
+    active_value = state.get("active_request")
+    print("active_request:", json.dumps(active_value, ensure_ascii=True))
+    try:
+        active_age = int(max(0, now() - float(active_value.get("sent_at", 0) or 0))) if isinstance(active_value, dict) else 0
+    except (TypeError, ValueError):
+        active_age = 0
+    print("active_request_age_seconds:", active_age)
+    print("delivery_timeout_seconds:", number("RND_V5_DELIVERY_TIMEOUT_SECONDS", 600, 7200))
     print("manual_queue_offset:", state.get("manual_queue_offset", 0))
     print("last_manual_request_id:", state.get("last_manual_request_id", ""))
     discussion = state.get("discussion", {})
@@ -969,6 +1034,10 @@ def status() -> None:
     print("discussion_enabled:", discussion_enabled())
     print("discussion_intro_posted:", bool(isinstance(discussion, dict) and discussion.get("intro_posted_at")))
     print("discussion_daily:", json.dumps(discussion.get("daily", {}) if isinstance(discussion, dict) else {}, sort_keys=True))
+    print("discussion_last_error:", clean(discussion.get("last_error", "") if isinstance(discussion, dict) else "", 500))
+    print("discussion_last_error_at:", discussion.get("last_error_at", 0) if isinstance(discussion, dict) else 0)
+    print("discussion_last_post_at:", discussion.get("last_post_at", 0) if isinstance(discussion, dict) else 0)
+    print("expired_workflows:", len(state.get("expired_workflows", {}) if isinstance(state.get("expired_workflows", {}), dict) else {}))
     print("last_error:", clean(state.get("last_error"), 500))
     print("policy: read-only, bounded signed research-room events, cross-validation>=2 sources, no-auto-PR, no-auto-server-change")
 
