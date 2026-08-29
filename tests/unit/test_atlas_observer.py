@@ -367,3 +367,5 @@ def test_v3_upgrade_changes_only_atlas_ui_and_keeps_v2_backup():
     assert "A2A/TG not restarted" in script
     assert "wait_for_dashboard 'TECHNOCORE // PIXEL QUEST'" in script
     assert "Atlas v2 restored and listening" in script
+    assert "install -d -m 0755 /opt/technocore-atlas" in script
+    assert "import tools.atlas_observer" in script

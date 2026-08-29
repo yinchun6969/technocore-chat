@@ -51,7 +51,10 @@ rollback() {
   trap - ERR
   set +e
   systemctl stop technocore-atlas-refresh.timer technocore-atlas-web.service technocore-atlas-refresh.service >/dev/null 2>&1 || true
+  install -d -m 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
   cp -a "$BACKUP/tools/." /opt/technocore-atlas/tools/
+  chmod 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
+  chmod 0644 /opt/technocore-atlas/tools/*.py
   systemctl enable --now technocore-atlas-web.service technocore-atlas-refresh.timer >/dev/null 2>&1 || true
   systemctl start --no-block technocore-atlas-refresh.service >/dev/null 2>&1 || true
   if wait_for_dashboard 'TECHNOCORE // ATLAS v2'; then
@@ -63,10 +66,16 @@ rollback() {
 }
 trap rollback ERR
 systemctl stop technocore-atlas-refresh.timer technocore-atlas-web.service technocore-atlas-refresh.service
+install -d -m 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
 install -m 0644 "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/
+chmod 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
 compile_files \
   /opt/technocore-atlas/tools/atlas_dashboard.py \
   /opt/technocore-atlas/tools/atlas_observer.py
+(
+  cd /opt/technocore-atlas
+  PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -c 'import tools.atlas_observer'
+)
 systemctl enable --now technocore-atlas-web.service technocore-atlas-refresh.timer
 systemctl start --no-block technocore-atlas-refresh.service
 systemctl is-active --quiet technocore-atlas-web.service
