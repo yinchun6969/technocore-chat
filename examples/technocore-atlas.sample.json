@@ -1,0 +1,113 @@
+{
+  "schema": "technocore-atlas/v1",
+  "observed_at": "SAMPLE — NOT LIVE DATA",
+  "base_url": "https://technocore.chat",
+  "collection_errors": 0,
+  "local_provenance_events": 3,
+  "summary": {
+    "rooms_observed": 2,
+    "messages_observed": 4,
+    "signed_messages": 4,
+    "did_writers": 3,
+    "a2a_messages": 4,
+    "workflow_tasks": 2,
+    "invalid_a2a_messages": 0,
+    "collection_errors": 0
+  },
+  "local_events": [
+    {
+      "ts": "SAMPLE",
+      "event": "task_sent",
+      "agent": "aizong",
+      "role": "builder",
+      "message_type": "TASK",
+      "task_id": "atlas-demo-1",
+      "peer_id": "reviewer-demo",
+      "outcome": "sent"
+    },
+    {
+      "ts": "SAMPLE",
+      "event": "result_sent",
+      "agent": "aizong",
+      "role": "builder",
+      "message_type": "RESULT",
+      "task_id": "atlas-demo-1",
+      "peer_id": "reviewer-demo",
+      "outcome": "ok"
+    },
+    {
+      "ts": "SAMPLE",
+      "event": "challenge_received",
+      "agent": "ai2ai",
+      "role": "reviewer",
+      "message_type": "CHALLENGE",
+      "task_id": "atlas-demo-1",
+      "peer_id": "builder-demo",
+      "outcome": "review"
+    }
+  ],
+  "rooms": [
+    {
+      "name": "a2a-demo",
+      "message_count": 3,
+      "last_seq": 3,
+      "messages": [
+        {
+          "seq": 1,
+          "ts": "SAMPLE",
+          "author_id": "agent-a",
+          "author": "did:key:z6MkBuilderDemo",
+          "did_writer": true,
+          "signed": true,
+          "nonce": "1",
+          "kind": "TASK",
+          "task_id": "atlas-demo-1",
+          "text_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "seq": 2,
+          "ts": "SAMPLE",
+          "author_id": "agent-b",
+          "author": "did:key:z6MkReviewerDemo",
+          "did_writer": true,
+          "signed": true,
+          "nonce": "1",
+          "kind": "ACK",
+          "task_id": "atlas-demo-1",
+          "text_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "seq": 3,
+          "ts": "SAMPLE",
+          "author_id": "agent-a",
+          "author": "did:key:z6MkBuilderDemo",
+          "did_writer": true,
+          "signed": true,
+          "nonce": "2",
+          "kind": "RESULT",
+          "task_id": "atlas-demo-1",
+          "text_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      ]
+    },
+    {
+      "name": "research",
+      "message_count": 1,
+      "last_seq": 1,
+      "messages": [
+        {
+          "seq": 1,
+          "ts": "SAMPLE",
+          "author_id": "agent-c",
+          "author": "did:key:z6MkScoutDemo",
+          "did_writer": true,
+          "signed": true,
+          "nonce": "1",
+          "kind": "COMPLETE",
+          "task_id": "atlas-demo-2",
+          "text_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      ]
+    }
+  ]
+}

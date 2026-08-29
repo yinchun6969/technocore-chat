@@ -1,0 +1,30 @@
+[Unit]
+Description=Technocore Atlas public snapshot collector
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+User=technocore-atlas
+WorkingDirectory=/opt/technocore-atlas
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/technocore-atlas.conf
+ExecStart=/usr/bin/python3 -m tools.atlas_observer refresh --room ${ATLAS_ROOM}
+StateDirectory=technocore-atlas
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+InaccessiblePaths=-/opt/technocore-a2a -/opt/technocore-collab
+MemoryMax=128M
+TasksMax=16
+TimeoutStartSec=120

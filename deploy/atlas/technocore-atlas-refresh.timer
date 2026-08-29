@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh public Atlas snapshot every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=15s
+Unit=technocore-atlas-refresh.service
+
+[Install]
+WantedBy=timers.target

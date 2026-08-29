@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from email.message import Message
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+from xml.etree import ElementTree
+
+import pytest
+
+from tools import atlas_observer as observer
+from tools.technocore_atlas import (
+    _a2a_metadata,
+    _base_url,
+    _is_public_room,
+    collect_snapshot,
+    fetch_json,
+    snapshot_from_dict,
+)
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@contextmanager
+def running_server(handler: type[BaseHTTPRequestHandler]) -> Iterator[str]:
+    server = HTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def sample():
+    return snapshot_from_dict(
+        json.loads((ROOT / "examples/technocore-atlas.sample.json").read_text())
+    )
+
+
+@pytest.mark.parametrize(
+    "room",
+    ["p-secret", "mb-public", "d-e-p-secret", "e-d-mb-public", "e-mb-p-secret", "../x", "x?y"],
+)
+def test_observer_rejects_private_and_mailbox_classes(room):
+    assert not _is_public_room(room)
+    with pytest.raises(ValueError):
+        collect_snapshot(
+            "https://example.test",
+            selected_rooms=(room,),
+            fetcher=lambda *_: pytest.fail("network call"),
+        )
+
+
+def test_selected_room_is_read_even_when_not_in_recent_directory():
+    calls = []
+
+    def fetch(url, timeout):
+        calls.append(url)
+        return {"messages": [], "last_seq": 0}
+
+    snapshot = collect_snapshot(
+        "https://example.test", selected_rooms=("yinchun-a2a-rnd-v5",), fetcher=fetch
+    )
+    assert len(calls) == 1
+    assert "/r/yinchun-a2a-rnd-v5?" in calls[0]
+    assert snapshot.rooms[0].name == "yinchun-a2a-rnd-v5"
+
+
+def test_malformed_room_is_counted_as_failure():
+    snapshot = collect_snapshot(
+        "https://example.test", selected_rooms=("lobby",), fetcher=lambda *_: {"unexpected": []}
+    )
+    assert not snapshot.rooms and snapshot.collection_errors == 1
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://user:password@example.test",
+        "https://example.test/r/lobby/say/x/y",
+        "https://example.test?q=1",
+    ],
+)
+def test_origin_is_not_a_write_route_or_credential_container(origin):
+    with pytest.raises(ValueError):
+        _base_url(origin)
+
+
+def test_scheduler_type_is_observable_without_executing_it():
+    assert _a2a_metadata('A2A1 {"type":"SCHEDULER_REQUEST","task_id":"sched-1"}') == (
+        "SCHEDULER_REQUEST",
+        "sched-1",
+    )
+
+
+def test_redirect_to_write_route_is_never_followed():
+    hits = []
+
+    class Redirect(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            hits.append(self.path)
+            self.send_response(302)
+            self.send_header("Location", "/r/lobby/say/nick/write")
+            self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    with running_server(Redirect) as base:
+        with pytest.raises(HTTPError):
+            fetch_json(base + "/rooms", timeout=2)
+    assert hits == ["/rooms"]
+
+
+def test_failed_refresh_preserves_snapshot_and_hides_error_details(tmp_path):
+    path = tmp_path / "state.json"
+    assert observer.refresh(path, collector=lambda *a, **k: sample()) == 0
+    before = observer.load_state(path)
+
+    def failure(*args, **kwargs):
+        raise OSError("https://secret.invalid/private?token=hidden")
+
+    assert observer.refresh(path, collector=failure) == 1
+    after = observer.load_state(path)
+    assert after["snapshot"] == before["snapshot"]
+    assert after["last_success"] == before["last_success"]
+    assert observer.status(after)["status"] == "degraded"
+    assert "hidden" not in path.read_text()
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.glob(".atlas-*"))
+
+
+def test_refresh_exposes_only_sanitized_http_error_code(tmp_path, monkeypatch):
+    def unavailable(url, timeout):
+        raise HTTPError(url, 503, "secret details", Message(), None)
+
+    monkeypatch.setattr(observer, "fetch_json", unavailable)
+    path = tmp_path / "state.json"
+    assert observer.refresh(path) == 1
+    state = observer.load_state(path)
+    assert state["error_code"] == "HTTP_503"
+    assert "secret" not in path.read_text()
+
+
+def test_no_sample_is_substituted_on_first_failure(tmp_path):
+    path = tmp_path / "state.json"
+    empty = sample().to_dict()
+    empty["rooms"] = []
+    assert observer.refresh(path, collector=lambda *a, **k: snapshot_from_dict(empty)) == 1
+    state = observer.load_state(path)
+    assert "snapshot" not in state
+    assert observer.status(state)["status"] == "waiting"
+    assert b"WAITING" in observer.svg_document(state)
+
+
+def test_stale_and_current_graphs_are_valid_svg(tmp_path):
+    path = tmp_path / "state.json"
+    observer.refresh(path, collector=lambda *a, **k: sample())
+    state = observer.load_state(path)
+    assert observer.status(state)["status"] == "ok"
+    ElementTree.fromstring(observer.svg_document(state))
+    state["last_success_epoch"] = 1
+    assert observer.status(state, now=10000)["stale"]
+    assert b"STALE" in observer.svg_document(state)
+    ElementTree.fromstring(observer.svg_document(state))
+
+
+def test_allowlisted_http_routes_no_file_access_and_no_writes(tmp_path):
+    path = tmp_path / "state.json"
+    observer.refresh(path, collector=lambda *a, **k: sample())
+    before = path.read_bytes()
+    with running_server(observer.make_handler(path)) as base:
+        with urlopen(base + "/atlas.svg", timeout=2) as response:
+            assert response.headers["Cache-Control"] == "no-store"
+            assert response.headers["X-Content-Type-Options"] == "nosniff"
+            ElementTree.fromstring(response.read())
+        with urlopen(base + "/atlas.json", timeout=2) as response:
+            assert json.load(response)["observation"]["status"] == "ok"
+        for route in ["/observer.json", "/.env", "/../../etc/passwd", "/r/lobby/say/x/y"]:
+            with pytest.raises(HTTPError) as error:
+                urlopen(base + route, timeout=2)
+            assert error.value.code == 404
+        with pytest.raises(HTTPError) as error:
+            urlopen(Request(base + "/status.json", headers={"Host": "evil.test"}), timeout=2)
+        assert error.value.code == 403
+        with pytest.raises(HTTPError) as error:
+            urlopen(Request(base + "/", data=b"write"), timeout=2)
+        assert error.value.code == 405
+    assert path.read_bytes() == before
+
+
+def test_corrupt_state_returns_service_unavailable(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text("invalid JSON")
+    with running_server(observer.make_handler(path)) as base:
+        with pytest.raises(HTTPError) as error:
+            urlopen(base + "/status.json", timeout=2)
+        assert error.value.code == 503
+
+
+def test_install_check_does_not_write_or_change_units(tmp_path):
+    if os.geteuid() != 0:
+        pytest.skip("installer preflight requires root; no install is performed")
+    log = tmp_path / "calls"
+    systemctl = tmp_path / "systemctl"
+    systemctl.write_text(
+        '#!/bin/bash\nprintf "%s\\n" "$*" >> "$ATLAS_TEST_CALLS"\n'
+        'case "$1" in\n show-environment|is-active) exit 0;;\n show) echo not-found;;\n *) exit 90;;\n esac\n'
+    )
+    systemctl.chmod(0o755)
+    env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}", ATLAS_TEST_CALLS=str(log))
+    result = subprocess.run(
+        ["bash", str(ROOT / "deploy/atlas/install.sh"), "--check", "--room", "atlas-test"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "CHECK_ONLY" in result.stdout
+    assert "start" not in log.read_text()
+    assert not Path("/opt/technocore-atlas").exists()
+
+
+def test_installer_resolves_current_identity_room_without_env_or_keys():
+    script = (ROOT / "deploy/atlas/install.sh").read_text()
+    assert "/opt/technocore-a2a/rnd-v5-state/identity-room-name" in script
+    assert "95-identity-room-v520.conf" in script
+    assert "/opt/technocore-a2a/.env" not in script
+    assert "Cannot establish the current v5 identity room" in script
+
+
+def test_units_are_separate_and_web_is_read_only():
+    folder = ROOT / "deploy/atlas"
+    for name in ("technocore-atlas-refresh.service", "technocore-atlas-web.service"):
+        text = (folder / name).read_text()
+        assert "DynamicUser=yes" in text and "ProtectSystem=strict" in text
+        assert "InaccessiblePaths=-/opt/technocore-a2a -/opt/technocore-collab" in text
+        assert "EnvironmentFile=/opt/" not in text
+    web = (folder / "technocore-atlas-web.service").read_text()
+    assert "ReadOnlyPaths=/var/lib/technocore-atlas" in web
+    assert "IPAddressDeny=any" in web

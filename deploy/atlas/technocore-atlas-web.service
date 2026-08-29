@@ -1,0 +1,35 @@
+[Unit]
+Description=Technocore Atlas loopback SVG and JSON reader
+After=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+User=technocore-atlas
+WorkingDirectory=/opt/technocore-atlas
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m tools.atlas_observer serve
+StateDirectory=technocore-atlas
+StateDirectoryMode=0700
+ReadOnlyPaths=/var/lib/technocore-atlas
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+InaccessiblePaths=-/opt/technocore-a2a -/opt/technocore-collab
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryMax=128M
+TasksMax=16
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

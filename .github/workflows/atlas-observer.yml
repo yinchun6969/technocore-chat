@@ -1,0 +1,30 @@
+name: Atlas observer
+on:
+  push:
+    branches: [feat/technocore-atlas-v1-v5]
+  pull_request:
+    paths:
+      - tools/**
+      - deploy/atlas/**
+      - tests/unit/test_atlas*.py
+      - pyproject.toml
+      - .github/workflows/atlas-observer.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  observer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+      - run: uv sync --frozen
+      - run: uv run ruff check tools tests/unit/test_atlas.py tests/unit/test_atlas_observer.py
+      - run: uv run ruff format --check tools tests/unit/test_atlas.py tests/unit/test_atlas_observer.py
+      - run: uv run ty check tools tests/unit/test_atlas.py tests/unit/test_atlas_observer.py
+      - run: uv run pytest tests/unit/test_atlas.py tests/unit/test_atlas_observer.py -q
+      - run: bash -n deploy/atlas/install.sh && bash -n deploy/atlas/tc-atlas
+      - run: systemd-analyze verify deploy/atlas/technocore-atlas-refresh.service deploy/atlas/technocore-atlas-refresh.timer deploy/atlas/technocore-atlas-web.service
