@@ -33,8 +33,9 @@ PEERS_FILE="${ATLAS_PEERS_FILE:-/opt/technocore-a2a/state/peers.json}"
 ATLAS_WORKFLOW_ROOMS="$(
   cd "$SOURCE_ROOT"
   PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m tools.atlas_config "$PEERS_FILE"
-)" || fail 'Cannot resolve the two pinned v5 workflow mailboxes; no files written.'
+)" || fail 'Cannot resolve the two pinned v5 workflow routes; no files written.'
 [[ -n "$ATLAS_WORKFLOW_ROOMS" ]] || fail 'No v5 workflow sources resolved; no files written.'
+ATLAS_WORKFLOW_SOURCE_COUNT="$(awk -F, '{print NF}' <<< "$ATLAS_WORKFLOW_ROOMS")"
 TARGETS=(
   /opt/technocore-atlas
   /etc/technocore-atlas.conf
@@ -100,5 +101,5 @@ systemctl is-active --quiet technocore-atlas-refresh.timer
 systemctl start --no-block technocore-atlas-refresh.service
 trap - ERR
 echo 'ATLAS_V2_INSTALLED: 127.0.0.1:8787 only; initial collection pending.'
-echo "room=$ATLAS_ROOM; pinned workflow sources=3; no model calls, keys or A2A/TG restarts"
+echo "room=$ATLAS_ROOM; pinned workflow sources=$ATLAS_WORKFLOW_SOURCE_COUNT; no model calls, keys or A2A/TG restarts"
 echo 'Check: tc-atlas status | View: SSH tunnel to localhost:8787 | Rollback: tc-atlas stop'

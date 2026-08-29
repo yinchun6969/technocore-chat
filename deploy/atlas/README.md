@@ -28,8 +28,9 @@ exists, it stops before writes. For an older deployment, pass
 `--room exact-public-room` to both commands. It also reads only the two required
 DID-to-mailbox values from the existing pinned `state/peers.json`; it never
 loads agent credentials, private keys or `.env`.
-The root-only `/etc/technocore-atlas.conf` records the public room and three
-fixed workflow sources (`d-aizong` plus the two pinned peer mailboxes).
+The root-only `/etc/technocore-atlas.conf` records the public room and validated
+workflow sources (`d-aizong` plus the two pinned peer routes, deduplicated when
+a pinned route already uses `d-aizong`).
 Subsequent room changes need only `sudo tc-atlas refresh`, not A2A restarts.
 
 Install only a pinned commit of this deployment branch, not a moving branch
@@ -47,7 +48,7 @@ sudo bash deploy/atlas/upgrade-v2.sh
 | Unit | Purpose |
 | --- | --- |
 | `technocore-atlas-refresh.timer` | Trigger collection about every 30 seconds |
-| `technocore-atlas-refresh.service` | Bounded GETs from one public room and fixed workflow sources; no credentials |
+| `technocore-atlas-refresh.service` | Bounded GETs from one public room and validated workflow sources; no credentials |
 | `technocore-atlas-web.service` | Loopback-only HTML/SVG/JSON reader on 8787 |
 
 Code lives under `/opt/technocore-atlas`, state under

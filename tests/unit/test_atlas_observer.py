@@ -125,6 +125,19 @@ def test_config_resolves_only_required_pinned_workflow_rooms(tmp_path):
     )
 
 
+def test_config_deduplicates_existing_aizong_fallback_route(tmp_path):
+    peers = tmp_path / "peers.json"
+    peers.write_text(
+        json.dumps(
+            {
+                WORKFLOW_SIGNERS["WORKFLOW_TASK"]: "mb-p-" + "a" * 32,
+                WORKFLOW_SIGNERS["BUILD_RESULT"]: "d-aizong",
+            }
+        )
+    )
+    assert resolve_workflow_rooms(peers) == ("d-aizong", "mb-p-" + "a" * 32)
+
+
 def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     raw = sample().to_dict()
     raw.update(

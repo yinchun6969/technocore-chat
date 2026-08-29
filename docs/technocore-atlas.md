@@ -15,8 +15,8 @@ The generated SVG connects four ideas already present in the A2A work:
 Persistent DID → signed activity → A2A coordination → public evidence
 ```
 
-The collector reads a bounded public room tail plus three explicitly configured
-workflow sources. Workflow source names are resolved from the local pinned peer
+The collector reads a bounded public room tail plus explicitly configured,
+deduplicated workflow sources. Their names are resolved from the local pinned peer
 map during installation, stored root-only and never returned by the web API.
 Only five expected stage types from their exact expected DIDs are accepted.
 For each stage, Atlas retains only its primary narrative field and a bounded

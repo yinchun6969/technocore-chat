@@ -22,6 +22,7 @@ ATLAS_WORKFLOW_ROOMS="$(
   cd "$SOURCE_ROOT"
   PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m tools.atlas_config "$PEERS_FILE"
 )" || fail 'Cannot resolve pinned v5 workflow mailboxes; existing Atlas retained.'
+ATLAS_WORKFLOW_SOURCE_COUNT="$(awk -F, '{print NF}' <<< "$ATLAS_WORKFLOW_ROOMS")"
 (
   cd "$SOURCE_ROOT"
   PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 - "$ATLAS_ROOM" "$ATLAS_WORKFLOW_ROOMS" <<'PY'
@@ -32,8 +33,8 @@ if sys.version_info < (3, 12):
 if not _is_public_room(sys.argv[1]):
     raise SystemExit('invalid public room')
 rooms = sys.argv[2].split(',')
-if len(rooms) < 3 or not all(_is_workflow_room(room) for room in rooms):
-    raise SystemExit('expected the fixed room plus two pinned peer mailboxes')
+if not rooms or not all(_is_workflow_room(room) for room in rooms):
+    raise SystemExit('expected validated fixed and pinned workflow sources')
 PY
 )
 
@@ -74,4 +75,4 @@ systemctl is-active --quiet technocore-atlas-web.service
 systemctl is-active --quiet technocore-atlas-refresh.timer
 trap - ERR
 echo 'ATLAS_V2_UPGRADED: dashboard=127.0.0.1:8787; refresh=30s'
-echo "backup=$BACKUP; pinned workflow sources=3; A2A/TG not restarted"
+echo "backup=$BACKUP; pinned workflow sources=$ATLAS_WORKFLOW_SOURCE_COUNT; A2A/TG not restarted"
