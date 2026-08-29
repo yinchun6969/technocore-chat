@@ -4,12 +4,12 @@ set -Eeuo pipefail
 # Unified, role-aware upgrade for the already installed Technocore three-agent
 # stack. Component installers remain independently rollback-safe.
 VERSION="5.3.0"
-SOURCE_REF="27ed27ede5a61c6154005d399ca3229ffa40d914"
+SOURCE_REF="30fb4c1b0bb6cd57f2abc32d477ed43ab6707e69"
 SOURCE_BASE="https://raw.githubusercontent.com/yinchun6969/technocore-chat/$SOURCE_REF/deploy/a2a-v5"
 MODE="check"
 
 declare -A HASHES=(
-  [install-autonomous-rnd-v5.sh]="680dc83119962df36bd821eb50b420fd62505106612baf7765e3de91fdd79c1f"
+  [install-autonomous-rnd-v5.sh]="0284d441a85bb2cdb17f5443c17efb8028b0fc85fdd439c4bcc84b887258a1a4"
   [install-research-context-v3.2.sh]="21a35cd5dc4d19a46134d34cb1eca2255f19e4775a7e9ecf85e1b32644a7297a"
   [install-research-cadence-v3.2.1.sh]="bcab7a4eb39a09eeeeecf20e440805b428e6f856eff21673f092a9b9a43dd923"
   [install-wire-room-v3.1.sh]="1d827996c65df85177d7d45c0b46c98778bf6212f83c161bbd68411a685ec8c2"
