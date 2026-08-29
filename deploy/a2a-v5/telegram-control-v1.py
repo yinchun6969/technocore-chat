@@ -142,6 +142,7 @@ NOTIFY_LABELS = {
     "workflow_challenge": "AI2AI Reviewer 已开始交叉验证",
     "workflow_challenge_recovered": "Reviewer 已完成挑战恢复/补充验证",
     "workflow_revised_result": "Aizong Builder 已提交修订结果",
+    "workflow_revised_result_recovered": "Aizong Builder 已恢复并提交修订结果",
     "workflow_complete_received": "三方研究工作流已完成",
     "rnd_artifact_created": "研究档案已生成",
     "artifact_ready": "已生成研究简报，等待人工批准发布",
@@ -156,6 +157,10 @@ NOTIFY_LABELS = {
     "discussion_room_bootstrap_error": "研究房间首帖失败",
     "discussion_topic_post_error": "研究议题发布失败",
     "discussion_room_read_error": "研究房间读取失败",
+    "github_pr_ready": "研究结果已具备 PR 候选条件",
+    "github_pr_created": "GitHub PR 已创建",
+    "github_pr_ci_passed": "GitHub PR 的 CI 已通过",
+    "github_pr_ci_failed": "GitHub PR 的 CI 未通过",
 }
 
 
@@ -189,6 +194,20 @@ def event_message(row: dict) -> str | None:
         lines.append(f"目标：{goal}")
     if error:
         lines.append(f"说明：{error}")
+    pr_url = compact(
+        row.get("pr_url") or row.get("pull_request_url") or row.get("html_url"),
+        500,
+    )
+    branch = compact(row.get("branch"), 180)
+    commit = compact(row.get("commit") or row.get("commit_sha"), 80)
+    if pr_url and pr_url.startswith("https://github.com/"):
+        lines.append(f"PR：{pr_url}")
+    if branch:
+        lines.append(f"分支：{branch}")
+    if commit:
+        lines.append(f"commit：{commit}")
+    if event == "github_pr_ready" and not pr_url:
+        lines.append("说明：当前只是 PR 候选，仍需人工检查代码、测试和发布权限。")
     if event == "artifact_ready":
         lines.append("如需公开发布：先发送 /draft，再由你发送 /approve post-编号。")
     return "\n".join(lines)
