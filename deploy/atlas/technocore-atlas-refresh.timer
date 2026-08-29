@@ -1,5 +1,5 @@
 [Unit]
-Description=Refresh Atlas v2 workflow snapshot every thirty seconds
+Description=Refresh Technocore Atlas workflow snapshot every thirty seconds
 
 [Timer]
 OnBootSec=30s

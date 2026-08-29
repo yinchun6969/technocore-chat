@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Upgrade only an existing isolated Atlas v2 deployment to the v3 pixel UI.
+# Data collection and the v2 snapshot schema remain unchanged. Never restarts A2A/TG.
+set -Eeuo pipefail
+umask 077
+SOURCE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+fail() { echo "STOP: $*" >&2; exit 1; }
+compile_files() {
+  /usr/bin/python3 - "$@" <<'PY'
+from pathlib import Path
+import sys
+for name in sys.argv[1:]:
+    compile(Path(name).read_text(), name, 'exec')
+PY
+}
+[[ $EUID -eq 0 ]] || fail 'Run with sudo on the AI2AI VPS.'
+systemctl is-active --quiet technocore-a2a-rnd-v5.service || fail 'AI2AI v5 Director is not active.'
+for target in /opt/technocore-atlas/tools /etc/technocore-atlas.conf /usr/local/bin/tc-atlas; do
+  [[ -e "$target" && ! -L "$target" ]] || fail "Existing Atlas v2 target is absent or unsafe: $target"
+done
+grep -q '^ATLAS_WORKFLOW_ROOMS=' /etc/technocore-atlas.conf || fail 'Atlas v2 workflow configuration is absent.'
+if grep -q 'TECHNOCORE // PIXEL QUEST' /opt/technocore-atlas/tools/atlas_dashboard.py; then
+  echo 'ATLAS_V3_ALREADY_INSTALLED'
+  exit 0
+fi
+grep -q 'Atlas v2 workflow dashboard' /opt/technocore-atlas/tools/atlas_dashboard.py || fail 'Existing dashboard is not the expected Atlas v2 release.'
+for source in tools/atlas_dashboard.py tools/atlas_observer.py; do
+  [[ -f "$SOURCE_ROOT/$source" && ! -L "$SOURCE_ROOT/$source" ]] || fail "Missing v3 source: $source"
+done
+grep -q 'TECHNOCORE // PIXEL QUEST' "$SOURCE_ROOT/tools/atlas_dashboard.py" || fail 'Source checkout is not Atlas v3.'
+compile_files "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py"
+
+BACKUP="/opt/technocore-atlas/backups/v2-to-v3-$(date -u +%Y%m%dT%H%M%SZ)"
+install -d -m 0700 "$BACKUP/tools"
+cp -a /opt/technocore-atlas/tools/atlas_dashboard.py "$BACKUP/tools/"
+cp -a /opt/technocore-atlas/tools/atlas_observer.py "$BACKUP/tools/"
+
+rollback() {
+  trap - ERR
+  systemctl stop technocore-atlas-refresh.timer technocore-atlas-web.service technocore-atlas-refresh.service >/dev/null 2>&1 || true
+  cp -a "$BACKUP/tools/." /opt/technocore-atlas/tools/
+  systemctl enable --now technocore-atlas-web.service technocore-atlas-refresh.timer >/dev/null 2>&1 || true
+  systemctl start --no-block technocore-atlas-refresh.service >/dev/null 2>&1 || true
+  echo "UPGRADE_FAILED: Atlas v2 restored from $BACKUP; A2A/TG untouched." >&2
+  exit 1
+}
+trap rollback ERR
+systemctl stop technocore-atlas-refresh.timer technocore-atlas-web.service technocore-atlas-refresh.service
+install -m 0644 "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/
+compile_files \
+  /opt/technocore-atlas/tools/atlas_dashboard.py \
+  /opt/technocore-atlas/tools/atlas_observer.py
+systemctl enable --now technocore-atlas-web.service technocore-atlas-refresh.timer
+systemctl start --no-block technocore-atlas-refresh.service
+systemctl is-active --quiet technocore-atlas-web.service
+systemctl is-active --quiet technocore-atlas-refresh.timer
+PAGE="$(curl -fsS http://127.0.0.1:8787/)"
+grep -Fq 'TECHNOCORE // PIXEL QUEST' <<< "$PAGE"
+trap - ERR
+echo 'ATLAS_V3_UPGRADED: pixel dashboard=127.0.0.1:8787; live polling=10s; collection=30s'
+echo "backup=$BACKUP; snapshot schema=v2; A2A/TG not restarted"

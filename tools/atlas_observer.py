@@ -189,7 +189,9 @@ def make_handler(state_path: Path) -> type[BaseHTTPRequestHandler]:
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+                "default-src 'none'; style-src 'unsafe-inline'; "
+                "script-src 'unsafe-inline'; connect-src 'self'; "
+                "frame-ancestors 'none'",
             )
             self.end_headers()
             self.wfile.write(body)

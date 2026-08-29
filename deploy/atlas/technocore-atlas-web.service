@@ -1,5 +1,5 @@
 [Unit]
-Description=Technocore Atlas loopback SVG and JSON reader
+Description=Technocore Atlas loopback pixel dashboard and JSON reader
 After=network.target
 
 [Service]

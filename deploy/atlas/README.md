@@ -1,11 +1,15 @@
-# Atlas v2 workflow observer: isolated v5 deployment
+# Atlas v3 Pixel Quest: isolated v5 workflow observer
 
 First installation on the **AI2AI node only**, alongside an active
 `technocore-a2a-rnd-v5.service`. Ubuntu 24.04, Python 3.12+, systemd, curl,
 and a free loopback port 8787 are required. No pip, model API or new identity.
 
-Atlas v2 renders a mobile-first workflow dashboard: the three fixed roles,
-five signed workflow stages, stage progress and allow-listed narrative fields.
+Atlas v3 renders a mobile-first pixel-art world driven by the same hardened v2
+snapshot: three named Agent characters, five signed workflow stages, replayable
+stage movement, speech bubbles, decorative helper sprites, completion effects,
+and an expandable allow-listed conversation timeline. The browser polls the
+local JSON snapshot every 10 seconds; collection remains about every 30 seconds.
+No external images, fonts, scripts, game assets or CDNs are loaded.
 It is an observation tool, not a live service-health agent. It cannot prove
 that all three agents are online. `ok` means the configured observations are
 fresh, not that research claims are correct. Sender DID and nonce are checked,
@@ -36,11 +40,16 @@ Subsequent room changes need only `sudo tc-atlas refresh`, not A2A restarts.
 Install only a pinned commit of this deployment branch, not a moving branch
 download, and verify its archive digest supplied with the release instructions.
 Do not run old v5 installers to install Atlas. Existing files or units cause a
-fail-closed stop before writes. An existing Atlas v1 must use the dedicated,
-backup-first upgrade:
+fail-closed stop before writes. An existing Atlas v1 must first use the pinned
+v2 release and its dedicated backup-first upgrade. An existing Atlas v2 then
+uses the v3 upgrader from a verified v3 checkout:
 
 ```bash
+# From the pinned v2 release, only when starting on v1:
 sudo bash deploy/atlas/upgrade-v2.sh
+
+# Then, from the verified v3 checkout (or directly when already on v2):
+sudo bash deploy/atlas/upgrade-v3.sh
 ```
 
 ## What starts
@@ -81,7 +90,11 @@ local port 8787, remote host 127.0.0.1, remote port 8787. The phone's localhost
 does not reach the VPS unless this tunnel is active. A directly accessible
 mobile URL needs a separately authorized authenticated proxy; not included.
 
-The v2 HTML dashboard refreshes itself every 30 seconds. It shows only the
+The v3 HTML dashboard polls `/atlas.json` every 10 seconds without reloading the
+page. `REPLAY` animates already observed stages in order; it never invents a
+new event. Named characters are the three configured Agents. Unnamed helper
+sprites and particles are explicitly decorative and do not claim extra Agents.
+The dashboard shows only the
 primary field for each accepted stage: `goal`, `build_result`, `challenge`,
 `revised_result`, or `final_summary`. Unknown fields, invalid senders, unsigned
 messages, unrelated chat and credential-shaped text are excluded or redacted.
@@ -119,7 +132,9 @@ sudo tc-atlas start    # enable Atlas again
 
 `stop` disables Atlas without deleting code or state. The v1-to-v2 upgrader
 creates a timestamped backup under `/opt/technocore-atlas/backups` and restores
-v1 automatically if a local upgrade step fails. It never restarts A2A or TG.
+v1 automatically if a local upgrade step fails. The v2-to-v3 upgrader separately
+backs up the v2 dashboard and observer before changing them and restores v2 on
+local failure. Neither upgrader restarts A2A or TG.
 
 ## Local verification (not VPS acceptance)
 
@@ -127,7 +142,7 @@ v1 automatically if a local upgrade step fails. It never restarts A2A or TG.
 uv run pytest tests/unit/test_atlas.py tests/unit/test_atlas_observer.py -q
 uv run ruff check tools tests/unit/test_atlas.py tests/unit/test_atlas_observer.py
 uv run ty check tools tests/unit/test_atlas.py tests/unit/test_atlas_observer.py
-bash -n deploy/atlas/install.sh deploy/atlas/upgrade-v2.sh
+bash -n deploy/atlas/install.sh deploy/atlas/upgrade-v2.sh deploy/atlas/upgrade-v3.sh
 bash -n deploy/atlas/tc-atlas
 systemd-analyze verify deploy/atlas/technocore-atlas-refresh.service deploy/atlas/technocore-atlas-refresh.timer deploy/atlas/technocore-atlas-web.service
 ```

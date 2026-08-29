@@ -5,6 +5,7 @@ umask 077
 SOURCE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 fail() { echo "STOP: $*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || fail 'Run with sudo on the AI2AI VPS.'
+grep -q 'Atlas v2 workflow dashboard' "$SOURCE_ROOT/tools/atlas_dashboard.py" || fail 'Run this legacy upgrader only from the pinned Atlas v2 release.'
 systemctl is-active --quiet technocore-a2a-rnd-v5.service || fail 'AI2AI v5 Director is not active.'
 for target in /opt/technocore-atlas/tools /etc/technocore-atlas.conf /usr/local/bin/tc-atlas; do
   [[ -e "$target" && ! -L "$target" ]] || fail "Existing Atlas v1 target is absent or unsafe: $target"

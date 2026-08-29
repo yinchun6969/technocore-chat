@@ -100,6 +100,6 @@ systemctl is-active --quiet technocore-atlas-web.service
 systemctl is-active --quiet technocore-atlas-refresh.timer
 systemctl start --no-block technocore-atlas-refresh.service
 trap - ERR
-echo 'ATLAS_V2_INSTALLED: 127.0.0.1:8787 only; initial collection pending.'
+echo 'ATLAS_V3_INSTALLED: pixel dashboard=127.0.0.1:8787 only; initial collection pending.'
 echo "room=$ATLAS_ROOM; pinned workflow sources=$ATLAS_WORKFLOW_SOURCE_COUNT; no model calls, keys or A2A/TG restarts"
 echo 'Check: tc-atlas status | View: SSH tunnel to localhost:8787 | Rollback: tc-atlas stop'

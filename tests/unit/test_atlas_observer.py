@@ -170,10 +170,14 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     state = {"snapshot": raw}
     body = dashboard_document(state, {"status": "ok"}).decode()
     assert '<meta name="viewport"' in body
-    assert '<meta http-equiv="refresh" content="30">' in body
-    assert "wf-mobile-1" in body and "交叉质疑" in body
+    assert "TECHNOCORE // PIXEL QUEST" in body
+    assert 'fetch("/atlas.json"' in body
+    assert "setInterval(refresh,10000)" in body
+    assert '<canvas id="world"' in body
+    assert "wf-mobile-1" in body and "交叉挑战" in body
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
     assert "<script>alert(1)</script>" not in body
+    assert "innerHTML" not in body
 
 
 def test_redirect_to_write_route_is_never_followed():
@@ -255,7 +259,10 @@ def test_allowlisted_http_routes_no_file_access_and_no_writes(tmp_path):
     with running_server(observer.make_handler(path)) as base:
         with urlopen(base + "/", timeout=2) as response:
             assert response.headers.get_content_type() == "text/html"
-            assert b"ATLAS v2" in response.read()
+            policy = response.headers["Content-Security-Policy"]
+            assert "script-src 'unsafe-inline'" in policy
+            assert "connect-src 'self'" in policy
+            assert b"PIXEL QUEST" in response.read()
         with urlopen(base + "/atlas.svg", timeout=2) as response:
             assert response.headers["Cache-Control"] == "no-store"
             assert response.headers["X-Content-Type-Options"] == "nosniff"
@@ -344,6 +351,16 @@ def test_units_are_separate_and_web_is_read_only():
 def test_v2_upgrade_is_atlas_only_and_keeps_automatic_backup():
     script = (ROOT / "deploy/atlas/upgrade-v2.sh").read_text()
     assert "v1-to-v2-" in script and "BACKUP=" in script
+    assert "technocore-a2a-rnd-v5.service" in script
+    assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
+    assert "technocore-collab.service" not in script
+    assert "A2A/TG not restarted" in script
+
+
+def test_v3_upgrade_changes_only_atlas_ui_and_keeps_v2_backup():
+    script = (ROOT / "deploy/atlas/upgrade-v3.sh").read_text()
+    assert "v2-to-v3-" in script and "BACKUP=" in script
+    assert "tools/atlas_dashboard.py" in script and "tools/atlas_observer.py" in script
     assert "technocore-a2a-rnd-v5.service" in script
     assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
     assert "technocore-collab.service" not in script
