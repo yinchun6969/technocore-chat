@@ -30,18 +30,29 @@ for target in /opt/technocore-atlas/tools /etc/technocore-atlas.conf /usr/local/
   [[ -e "$target" && ! -L "$target" ]] || fail "Existing Atlas v2 target is absent or unsafe: $target"
 done
 grep -q '^ATLAS_WORKFLOW_ROOMS=' /etc/technocore-atlas.conf || fail 'Atlas v2 workflow configuration is absent.'
-if grep -q 'TECHNOCORE // PIXEL QUEST' /opt/technocore-atlas/tools/atlas_dashboard.py; then
-  echo 'ATLAS_V3_ALREADY_INSTALLED'
-  exit 0
-fi
-grep -q 'Atlas v2 workflow dashboard' /opt/technocore-atlas/tools/atlas_dashboard.py || fail 'Existing dashboard is not the expected Atlas v2 release.'
 for source in tools/atlas_dashboard.py tools/atlas_observer.py; do
   [[ -f "$SOURCE_ROOT/$source" && ! -L "$SOURCE_ROOT/$source" ]] || fail "Missing v3 source: $source"
 done
 grep -q 'TECHNOCORE // PIXEL QUEST' "$SOURCE_ROOT/tools/atlas_dashboard.py" || fail 'Source checkout is not Atlas v3.'
 compile_files "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py"
+if cmp -s "$SOURCE_ROOT/tools/atlas_dashboard.py" /opt/technocore-atlas/tools/atlas_dashboard.py && \
+  cmp -s "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/atlas_observer.py; then
+  echo 'ATLAS_V3_CURRENT_RELEASE_ALREADY_INSTALLED'
+  exit 0
+fi
+if grep -q 'TECHNOCORE // PIXEL QUEST' /opt/technocore-atlas/tools/atlas_dashboard.py; then
+  PREVIOUS_RELEASE='Atlas v3'
+  ROLLBACK_MARKER='TECHNOCORE // PIXEL QUEST'
+  BACKUP_KIND='v3-to-v3.2'
+elif grep -q 'Atlas v2 workflow dashboard' /opt/technocore-atlas/tools/atlas_dashboard.py; then
+  PREVIOUS_RELEASE='Atlas v2'
+  ROLLBACK_MARKER='TECHNOCORE // ATLAS v2'
+  BACKUP_KIND='v2-to-v3'
+else
+  fail 'Existing dashboard is not an expected Atlas v2/v3 release.'
+fi
 
-BACKUP="/opt/technocore-atlas/backups/v2-to-v3-$(date -u +%Y%m%dT%H%M%SZ)"
+BACKUP="/opt/technocore-atlas/backups/${BACKUP_KIND}-$(date -u +%Y%m%dT%H%M%SZ)"
 install -d -m 0700 "$BACKUP/tools"
 cp -a /opt/technocore-atlas/tools/atlas_dashboard.py "$BACKUP/tools/"
 cp -a /opt/technocore-atlas/tools/atlas_observer.py "$BACKUP/tools/"
@@ -57,10 +68,10 @@ rollback() {
   chmod 0644 /opt/technocore-atlas/tools/*.py
   systemctl enable --now technocore-atlas-web.service technocore-atlas-refresh.timer >/dev/null 2>&1 || true
   systemctl start --no-block technocore-atlas-refresh.service >/dev/null 2>&1 || true
-  if wait_for_dashboard 'TECHNOCORE // ATLAS v2'; then
-    echo "UPGRADE_FAILED: Atlas v2 restored and listening from $BACKUP; A2A/TG untouched." >&2
+  if wait_for_dashboard "$ROLLBACK_MARKER"; then
+    echo "UPGRADE_FAILED: $PREVIOUS_RELEASE restored and listening from $BACKUP; A2A/TG untouched." >&2
   else
-    echo "UPGRADE_FAILED: Atlas v2 files restored from $BACKUP, but its web service needs inspection; A2A/TG untouched." >&2
+    echo "UPGRADE_FAILED: $PREVIOUS_RELEASE files restored from $BACKUP, but its web service needs inspection; A2A/TG untouched." >&2
   fi
   exit "$exit_code"
 }
@@ -82,5 +93,5 @@ systemctl is-active --quiet technocore-atlas-web.service
 systemctl is-active --quiet technocore-atlas-refresh.timer
 wait_for_dashboard 'TECHNOCORE // PIXEL QUEST'
 trap - ERR
-echo 'ATLAS_V3_UPGRADED: pixel dashboard=127.0.0.1:8787; live polling=10s; collection=30s'
+echo 'ATLAS_V3_2_UPGRADED: Technocore relay dashboard=127.0.0.1:8787; live polling=10s; collection=30s'
 echo "backup=$BACKUP; snapshot schema=v2; A2A/TG not restarted"

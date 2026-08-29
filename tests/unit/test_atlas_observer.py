@@ -174,7 +174,16 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     assert 'fetch("/atlas.json"' in body
     assert "setInterval(refresh,10000)" in body
     assert '<canvas id="world"' in body
-    assert "wf-mobile-1" in body and "交叉挑战" in body
+    assert 'class="brand-mark"' in body
+    assert "Atlas v3.2" in body
+    assert 'navy="#081631",cyan="#20e2f2",white="#f7f8ff"' in body
+    assert 'px(x+5,fy,58,34,"#ff5b5b")' not in body
+    assert "const STEP_MS=7600,MOVE_END=.36,WORK_END=.76" in body
+    assert 'phase=progress<MOVE_END?"move":progress<WORK_END?"work":"handoff"' in body
+    assert 'document.getElementById("replay").addEventListener("click",beginReplay)' in body
+    assert "S.replayStart+=held" in body
+    assert "签名交接" in body and "Scout/Gate" in body
+    assert "wf-mobile-1" in body and "审查挑战" in body
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
     assert "<script>alert(1)</script>" not in body
     assert "innerHTML" not in body
@@ -357,15 +366,17 @@ def test_v2_upgrade_is_atlas_only_and_keeps_automatic_backup():
     assert "A2A/TG not restarted" in script
 
 
-def test_v3_upgrade_changes_only_atlas_ui_and_keeps_v2_backup():
+def test_v3_upgrade_changes_only_atlas_ui_and_keeps_versioned_backup():
     script = (ROOT / "deploy/atlas/upgrade-v3.sh").read_text()
-    assert "v2-to-v3-" in script and "BACKUP=" in script
+    assert "v2-to-v3" in script and "v3-to-v3.2" in script and "BACKUP=" in script
     assert "tools/atlas_dashboard.py" in script and "tools/atlas_observer.py" in script
     assert "technocore-a2a-rnd-v5.service" in script
     assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
     assert "technocore-collab.service" not in script
     assert "A2A/TG not restarted" in script
     assert "wait_for_dashboard 'TECHNOCORE // PIXEL QUEST'" in script
-    assert "Atlas v2 restored and listening" in script
+    assert 'wait_for_dashboard "$ROLLBACK_MARKER"' in script
+    assert "$PREVIOUS_RELEASE restored and listening" in script
     assert "install -d -m 0755 /opt/technocore-atlas" in script
     assert "import tools.atlas_observer" in script
+    assert "ATLAS_V3_CURRENT_RELEASE_ALREADY_INSTALLED" in script
