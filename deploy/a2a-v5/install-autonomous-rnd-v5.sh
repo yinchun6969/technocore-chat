@@ -310,16 +310,27 @@ install_love8() {
   local stamp_dir="$(backup_path love8)"
   backup_love8 "$stamp_dir"
   write_manifest "$stamp_dir" love8
-  local tmp_gate="$(mktemp)"
-  trap 'rm -f "$tmp_gate"' RETURN
-  curl -fL --retry 5 --retry-delay 2 "$GATE_RAW" -o "$tmp_gate"
-  bash -n "$tmp_gate"
-  bash "$tmp_gate"
-  rm -f "$tmp_gate"
-  trap - RETURN
+  local gate_version
+  if grep -q 'AUTONOMOUS_SCHEDULER_GATE_V30' "$runtime"; then
+    # Progress-delivery v3 upgrades the signed v2.9 gate in place.  Do not run
+    # the older patcher again: its exact dispatch needle intentionally does
+    # not match a runtime that already dispatches scheduler requests.
+    gate_version="v30-existing"
+    echo "Love8 scheduler gate v3 already installed; legacy v2.9 patch skipped"
+  else
+    local tmp_gate="$(mktemp)"
+    trap 'rm -f "$tmp_gate"' RETURN
+    curl -fL --retry 5 --retry-delay 2 "$GATE_RAW" -o "$tmp_gate"
+    bash -n "$tmp_gate"
+    bash "$tmp_gate"
+    rm -f "$tmp_gate"
+    trap - RETURN
+    gate_version="v29-installed"
+  fi
   "$root/venv/bin/python" -m py_compile "$runtime"
-  grep -q 'AUTONOMOUS_SCHEDULER_GATE_V29' "$runtime" || die "signed scheduler gate was not installed"
-  grep -q 'SCHEDULER_REQUEST' "$runtime" || die "scheduler request handler was not installed"
+  grep -Eq 'AUTONOMOUS_SCHEDULER_GATE_V(29|30)' "$runtime" || die "signed scheduler gate was not installed"
+  grep -q 'def scheduler_request_handle' "$runtime" || die "scheduler request handler was not installed"
+  grep -q 'if scheduler_request_handle(sender,x): return' "$runtime" || die "scheduler request dispatch was not installed"
 
   local old_unit_exists=0
   [[ -f /etc/systemd/system/technocore-collab.service ]] && old_unit_exists=1
@@ -354,7 +365,7 @@ EOF
     tc-collab-process-status || true
   fi
   echo "=== LOVE8 AUTONOMOUS R&D v5 GATE READY ==="
-  echo "signed_scheduler_gate=installed"
+  echo "signed_scheduler_gate=$gate_version"
   echo "backup=$stamp_dir"
   echo "rollback=tc-collab-rnd-v5-rollback"
 }
