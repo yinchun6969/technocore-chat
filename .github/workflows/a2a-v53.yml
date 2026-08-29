@@ -1,0 +1,53 @@
+name: A2A v5.3 regression
+
+on:
+  pull_request:
+    paths:
+      - "deploy/a2a-v5/**"
+      - ".github/workflows/a2a-v53.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a2a-v53-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Unified installer and Telegram alerts
+        run: |
+          bash deploy/a2a-v5/test-a2a-suite-v5.3.sh
+
+      - name: Love8 pinned peer invitation bridge
+        run: |
+          python3 deploy/a2a-v5/test_love8_peer_bridge_v243.py
+
+      - name: Aizong byte-safe workflow wire
+        run: |
+          python3 deploy/a2a-v5/aizong-wire-v34/test_aizong_wire_v34.py
+
+      - name: AI2AI wire and research room
+        run: |
+          python3 deploy/a2a-v5/test_wire_room_v31.py
+
+      - name: Research context and cadence
+        run: |
+          sudo -E "$(command -v python3)" deploy/a2a-v5/test_research_context_v32.py
+          sudo -E "$(command -v python3)" deploy/a2a-v5/test_research_cadence_v321.py
+
+      - name: Rollback-safe installer coverage
+        run: |
+          sudo -E "$(command -v python3)" deploy/a2a-v5/test_research_installer_v32.py
+          sudo -E "$(command -v python3)" deploy/a2a-v5/test_research_cadence_installer_v321.py
