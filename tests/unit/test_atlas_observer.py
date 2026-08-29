@@ -365,3 +365,5 @@ def test_v3_upgrade_changes_only_atlas_ui_and_keeps_v2_backup():
     assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
     assert "technocore-collab.service" not in script
     assert "A2A/TG not restarted" in script
+    assert "wait_for_dashboard 'TECHNOCORE // PIXEL QUEST'" in script
+    assert "Atlas v2 restored and listening" in script

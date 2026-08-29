@@ -13,6 +13,17 @@ for name in sys.argv[1:]:
     compile(Path(name).read_text(), name, 'exec')
 PY
 }
+wait_for_dashboard() {
+  local marker="$1" page
+  for _attempt in $(seq 1 50); do
+    if page="$(curl -fsS --max-time 2 http://127.0.0.1:8787/ 2>/dev/null)" && \
+      grep -Fq "$marker" <<< "$page"; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  return 1
+}
 [[ $EUID -eq 0 ]] || fail 'Run with sudo on the AI2AI VPS.'
 systemctl is-active --quiet technocore-a2a-rnd-v5.service || fail 'AI2AI v5 Director is not active.'
 for target in /opt/technocore-atlas/tools /etc/technocore-atlas.conf /usr/local/bin/tc-atlas; do
@@ -36,13 +47,19 @@ cp -a /opt/technocore-atlas/tools/atlas_dashboard.py "$BACKUP/tools/"
 cp -a /opt/technocore-atlas/tools/atlas_observer.py "$BACKUP/tools/"
 
 rollback() {
+  local exit_code=$?
   trap - ERR
+  set +e
   systemctl stop technocore-atlas-refresh.timer technocore-atlas-web.service technocore-atlas-refresh.service >/dev/null 2>&1 || true
   cp -a "$BACKUP/tools/." /opt/technocore-atlas/tools/
   systemctl enable --now technocore-atlas-web.service technocore-atlas-refresh.timer >/dev/null 2>&1 || true
   systemctl start --no-block technocore-atlas-refresh.service >/dev/null 2>&1 || true
-  echo "UPGRADE_FAILED: Atlas v2 restored from $BACKUP; A2A/TG untouched." >&2
-  exit 1
+  if wait_for_dashboard 'TECHNOCORE // ATLAS v2'; then
+    echo "UPGRADE_FAILED: Atlas v2 restored and listening from $BACKUP; A2A/TG untouched." >&2
+  else
+    echo "UPGRADE_FAILED: Atlas v2 files restored from $BACKUP, but its web service needs inspection; A2A/TG untouched." >&2
+  fi
+  exit "$exit_code"
 }
 trap rollback ERR
 systemctl stop technocore-atlas-refresh.timer technocore-atlas-web.service technocore-atlas-refresh.service
@@ -54,8 +71,7 @@ systemctl enable --now technocore-atlas-web.service technocore-atlas-refresh.tim
 systemctl start --no-block technocore-atlas-refresh.service
 systemctl is-active --quiet technocore-atlas-web.service
 systemctl is-active --quiet technocore-atlas-refresh.timer
-PAGE="$(curl -fsS http://127.0.0.1:8787/)"
-grep -Fq 'TECHNOCORE // PIXEL QUEST' <<< "$PAGE"
+wait_for_dashboard 'TECHNOCORE // PIXEL QUEST'
 trap - ERR
 echo 'ATLAS_V3_UPGRADED: pixel dashboard=127.0.0.1:8787; live polling=10s; collection=30s'
 echo "backup=$BACKUP; snapshot schema=v2; A2A/TG not restarted"
