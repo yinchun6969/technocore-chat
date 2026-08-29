@@ -13,11 +13,12 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-ROOT = Path("/opt/technocore-a2a")
+ROOT = Path(os.environ.get("TECHNOCORE_A2A_ROOT", "/opt/technocore-a2a"))
 RUNTIME = ROOT / "bin" / "agent.py"
 STATE = ROOT / "rnd-v5-state"
 ARTIFACTS = ROOT / "rnd-v5-artifacts"
 STATE_FILE = STATE / "curator.json"
+CACHE_FILE = STATE / "curator-stage-cache.json"
 LOG_FILE = STATE / "curator.log"
 LOCK_FILE = STATE / "curator.lock"
 
@@ -36,6 +37,9 @@ AIZONG_DID = "did:key:z6MktU13Pf4jVf6Ck5D3pwNYX2PVUAfNC61ytciyb4Coyh7e"
 AI2AI_DID = "did:key:z6Mkrs9FviuKvQnAnexWfF1RWduNh6CqydrMAw8RUo73zoje"
 RECEIPT_ROOM = "d-ai2ai"
 POLL_SECONDS = max(30, int(os.environ.get("RND_V5_CURATOR_POLL_SECONDS", "120")))
+ROOM_LIMIT = min(200, max(50, int(os.environ.get("RND_V5_CURATOR_ROOM_LIMIT", "200"))))
+ROOM_RETRIES = min(5, max(1, int(os.environ.get("RND_V5_CURATOR_ROOM_RETRIES", "3"))))
+CACHE_MAX_WORKFLOWS = max(20, int(os.environ.get("RND_V5_CURATOR_CACHE_WORKFLOWS", "120")))
 PUBLISH = os.environ.get("RND_V5_PUBLISH_RECEIPTS", "1") == "1"
 EXPECTED = {
     "WORKFLOW_TASK": LOVE8_DID,
@@ -82,6 +86,36 @@ def save_state(value: dict) -> None:
     os.replace(temporary, STATE_FILE)
 
 
+def load_cache() -> dict[str, dict]:
+    try:
+        loaded = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    workflows = loaded.get("workflows", {}) if isinstance(loaded, dict) else {}
+    if not isinstance(workflows, dict):
+        return {}
+    return {
+        str(task_id): stages for task_id, stages in workflows.items()
+        if str(task_id).startswith("wf-") and isinstance(stages, dict)
+    }
+
+
+def save_cache(workflows: dict[str, dict]) -> None:
+    STATE.mkdir(parents=True, exist_ok=True)
+    ranked = sorted(
+        workflows.items(),
+        key=lambda item: max(
+            (float(stage.get("seen_at", 0) or 0) for stage in item[1].values() if isinstance(stage, dict)),
+            default=0,
+        ),
+        reverse=True,
+    )[:CACHE_MAX_WORKFLOWS]
+    value = {"version": "5.1", "workflows": dict(ranked), "updated_at": int(time.time())}
+    temporary = CACHE_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, CACHE_FILE)
+
+
 def parse(message: dict) -> dict | None:
     text = message.get("text")
     if not isinstance(text, str):
@@ -97,13 +131,22 @@ def parse(message: dict) -> dict | None:
 
 
 def room_messages(room: str) -> list[dict]:
-    response = requests.get(
-        f"{BASE}/r/{quote(room)}", params={"format": "json", "limit": 250},
-        timeout=25, headers={"User-Agent": "technocore-a2a-rnd-v5-curator/1.0"},
-    )
-    response.raise_for_status()
-    body = response.json()
-    return body.get("messages", []) if isinstance(body, dict) else []
+    last_error: Exception | None = None
+    for attempt in range(ROOM_RETRIES):
+        try:
+            response = requests.get(
+                f"{BASE}/r/{quote(room)}", params={"format": "json", "limit": ROOM_LIMIT},
+                timeout=25, headers={"User-Agent": "technocore-a2a-rnd-v5-curator/1.1"},
+            )
+            response.raise_for_status()
+            body = response.json()
+            return body.get("messages", []) if isinstance(body, dict) else []
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 < ROOM_RETRIES:
+                time.sleep(min(4, 2 ** attempt))
+    assert last_error is not None
+    raise last_error
 
 
 def rooms() -> list[str]:
@@ -116,7 +159,11 @@ def rooms() -> list[str]:
 
 
 def scan() -> dict[str, dict]:
-    workflows: dict[str, dict] = {}
+    # A workflow spans several public rooms.  Preserve successfully observed,
+    # sender-checked stages across polling rounds so intermittent 503s in one
+    # room cannot erase evidence collected from another room in a prior round.
+    workflows: dict[str, dict] = load_cache()
+    observed_at = time.time()
     for room in rooms():
         try:
             messages = room_messages(room)
@@ -134,8 +181,12 @@ def scan() -> dict[str, dict]:
                 continue
             seq = int(message.get("seq", 0) or 0)
             old = workflows.setdefault(task_id, {}).get(obj["type"])
-            if old is None or seq > old["seq"]:
-                workflows[task_id][obj["type"]] = {"seq": seq, "from": message.get("from"), "room": room, "obj": obj}
+            if old is None or seq > int(old.get("seq", 0) or 0):
+                workflows[task_id][obj["type"]] = {
+                    "seq": seq, "from": message.get("from"), "room": room,
+                    "obj": obj, "seen_at": observed_at,
+                }
+    save_cache(workflows)
     return workflows
 
 
