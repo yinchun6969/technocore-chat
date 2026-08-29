@@ -27,6 +27,33 @@ The resulting loop is:
 
 `evidence -> objective -> signed request -> Builder analysis -> Reviewer challenge -> revision -> final assessment -> cross-validation artifact`
 
+## Unified v5.3 upgrade
+
+The v5.3 role-aware wrapper consolidates the fixes that were previously
+installed separately. It detects `love8`, `aizong`, or `ai2ai`, verifies every
+download against an immutable commit and SHA-256 digest, and then applies only
+that node's components. Run `--check` first on each node, then `--apply` in the
+order Love8, Aizong, AI2AI:
+
+```bash
+curl -fL --retry 5 --retry-delay 2 \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/feat/a2a-v5-unified-suite/deploy/a2a-v5/install-a2a-suite-v5.3.sh \
+  -o /root/install-a2a-suite-v5.3.sh
+bash -n /root/install-a2a-suite-v5.3.sh
+bash /root/install-a2a-suite-v5.3.sh --check
+bash /root/install-a2a-suite-v5.3.sh --apply
+```
+
+The wrapper includes the pinned Love8 peer-route/deep-room invitation bridge,
+Aizong's byte-safe workflow wire, AI2AI research context and delivery recovery,
+and Telegram workflow/PR milestone notifications. An existing Telegram token,
+allowlist, offsets, drafts, and deduplication state are preserved.
+
+PR notifications are event-driven. They report a PR candidate, created PR URL,
+branch, commit, and CI result when the corresponding trusted local event is
+recorded. v5.3 still does not grant an agent permission to write GitHub or open
+a PR automatically; publication remains human-approved.
+
 The service is continuously online, but it is intentionally not a model call
 every second. Default policy is one new workflow per six hours and at most four
 per UTC day, with only one active workflow. This keeps 24/7 operation from
@@ -289,4 +316,3 @@ tc-a2a-telegram-rollback
 
 The rollback preserves AI2AI R&D services, DID, private key, mailbox, cursor,
 provenance, and Telegram state.
-
