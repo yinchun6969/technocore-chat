@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from tools.technocore_atlas import (
+    WORKFLOW_SIGNERS,
     _a2a_metadata,
     _load_local_events,
     collect_snapshot,
@@ -20,7 +21,7 @@ def test_a2a_metadata_is_allow_listed_and_bounded() -> None:
     assert _a2a_metadata("ordinary message") == ("MESSAGE", None)
 
 
-def test_collect_skips_private_rooms_and_does_not_keep_message_body() -> None:
+def test_collect_skips_private_rooms_and_does_not_keep_raw_message_body() -> None:
     calls: list[str] = []
 
     def fake_fetch(url: str, timeout: float) -> dict:
@@ -45,7 +46,99 @@ def test_collect_skips_private_rooms_and_does_not_keep_message_body() -> None:
     message = snapshot.rooms[0].messages[0]
     assert message.signed and message.kind == "RESULT"
     assert not hasattr(message, "text")
+    assert message.content is None
     assert len(calls) == 2
+
+
+def test_collects_verified_five_stage_workflow_with_allowlisted_content() -> None:
+    contents = {
+        "WORKFLOW_TASK": ("goal", "调查一个可靠性问题"),
+        "BUILD_RESULT": ("build_result", "Builder 初步分析"),
+        "CHALLENGE": ("challenge", "Reviewer 要求补充反例"),
+        "REVISED_RESULT": ("revised_result", "Builder 已根据质疑修订"),
+        "COMPLETE": ("final_summary", "Scout 总结并保留未解决风险"),
+    }
+
+    def row(index: int, kind: str) -> dict:
+        field, content = contents[kind]
+        payload = {
+            "v": 1,
+            "type": kind,
+            "task_id": "wf-live-1",
+            field: content,
+            "unknown_private_field": "must not be exported",
+        }
+        return {
+            "seq": index,
+            "ts": f"2026-08-29T02:2{index}:00Z",
+            "from": WORKFLOW_SIGNERS[kind],
+            "nonce": str(index),
+            "text": "A2A1 " + json.dumps(payload, ensure_ascii=False),
+        }
+
+    rows = [row(index, kind) for index, kind in enumerate(contents, 1)]
+
+    def fetch(url: str, timeout: float) -> dict:
+        if "/r/ai2ai?" in url:
+            return {"last_seq": 0, "messages": []}
+        return {"last_seq": 5, "messages": rows}
+
+    snapshot = collect_snapshot(
+        "https://example.test",
+        selected_rooms=("ai2ai",),
+        workflow_rooms=("d-aizong", "mb-p-" + "a" * 32),
+        fetcher=fetch,
+    )
+    assert snapshot.schema == "technocore-atlas/v2"
+    assert len(snapshot.workflows) == 1
+    workflow = snapshot.workflows[0]
+    assert workflow.status == "complete"
+    assert [stage.kind for stage in workflow.stages] == list(contents)
+    assert [stage.agent for stage in workflow.stages] == [
+        "Love8",
+        "Aizong",
+        "AI2AI",
+        "Aizong",
+        "Love8",
+    ]
+    exported = json.dumps(snapshot.to_dict(), ensure_ascii=False)
+    assert "Builder 初步分析" in exported
+    assert "unknown_private_field" not in exported
+    assert "must not be exported" not in exported
+    assert "mb-p-" not in exported
+
+
+def test_workflow_rejects_wrong_signer_and_redacts_credentials() -> None:
+    messages = [
+        {
+            "seq": 1,
+            "ts": "2026-08-29T02:20:00Z",
+            "from": WORKFLOW_SIGNERS["WORKFLOW_TASK"],
+            "nonce": "1",
+            "text": 'A2A1 {"type":"WORKFLOW_TASK","task_id":"wf-safe","goal":"token=super-secret-value"}',
+        },
+        {
+            "seq": 2,
+            "ts": "2026-08-29T02:21:00Z",
+            "from": WORKFLOW_SIGNERS["WORKFLOW_TASK"],
+            "nonce": "2",
+            "text": 'A2A1 {"type":"CHALLENGE","task_id":"wf-safe","challenge":"forged"}',
+        },
+    ]
+
+    def fetch(url: str, timeout: float) -> dict:
+        return {"last_seq": 2, "messages": [] if "/r/ai2ai?" in url else messages}
+
+    snapshot = collect_snapshot(
+        "https://example.test",
+        selected_rooms=("ai2ai",),
+        workflow_rooms=("d-aizong",),
+        fetcher=fetch,
+    )
+    workflow = snapshot.workflows[0]
+    assert len(workflow.stages) == 1
+    assert workflow.stages[0].content == "[敏感内容已隐藏]"
+    assert "super-secret-value" not in json.dumps(snapshot.to_dict())
 
 
 def test_render_escapes_untrusted_dynamic_labels() -> None:

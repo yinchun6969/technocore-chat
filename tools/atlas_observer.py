@@ -21,6 +21,7 @@ from typing import Any, cast
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 
+from tools.atlas_dashboard import dashboard_document
 from tools.technocore_atlas import Snapshot, collect_snapshot, fetch_json, render_svg
 
 DEFAULT_ROOM = "yinchun-a2a-rnd-v5"
@@ -69,6 +70,7 @@ def refresh(
     *,
     base: str = "https://technocore.chat",
     rooms: tuple[str, ...] = (DEFAULT_ROOM,),
+    workflow_rooms: tuple[str, ...] = (),
     collector: Callable[..., Snapshot] = collect_snapshot,
 ) -> int:
     state = load_state(path)
@@ -94,9 +96,10 @@ def refresh(
             messages_per_room=100,
             timeout=10,
             fetcher=observed_fetch,
+            workflow_rooms=workflow_rooms,
         )
         # Keep the last complete snapshot if even one selected room is unavailable.
-        if snapshot.collection_errors or not snapshot.rooms:
+        if snapshot.collection_errors or snapshot.workflow_collection_errors or not snapshot.rooms:
             raise ValueError("incomplete room collection")
         state.update(
             snapshot=snapshot.to_dict(),
@@ -123,7 +126,7 @@ def status(state: dict[str, Any], *, now: float | None = None) -> dict[str, Any]
     age = max(0, int((time.time() if now is None else now) - epoch)) if epoch else None
     stale = age is None or age > STALE_SECONDS
     return {
-        "schema": "technocore-atlas-observer/v1",
+        "schema": "technocore-atlas-observer/v2",
         "status": "waiting"
         if age is None
         else ("stale" if stale else ("ok" if state.get("last_attempt_ok") else "degraded")),
@@ -133,7 +136,9 @@ def status(state: dict[str, Any], *, now: float | None = None) -> dict[str, Any]
         "age_seconds": age,
         "stale": stale,
         "error_code": state.get("error_code"),
-        "meaning": "Public observations only; not proof of agent uptime or completed research.",
+        "meaning": (
+            "Observed signed stages only; not proof of agent uptime, identity or research quality."
+        ),
     }
 
 
@@ -179,6 +184,9 @@ def make_handler(state_path: Path) -> type[BaseHTTPRequestHandler]:
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
@@ -198,7 +206,11 @@ def make_handler(state_path: Path) -> type[BaseHTTPRequestHandler]:
                 return
             try:
                 state = load_state(state_path)
-                if route in {"/", "/atlas.svg"}:
+                if route == "/":
+                    self.send_body(
+                        200, "text/html; charset=utf-8", dashboard_document(state, status(state))
+                    )
+                elif route == "/atlas.svg":
                     self.send_body(200, "image/svg+xml; charset=utf-8", svg_document(state))
                 elif route == "/atlas.json":
                     snapshot = state.get("snapshot")
@@ -222,9 +234,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=("refresh", "serve", "status"))
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument("--room", action="append", default=[])
+    parser.add_argument(
+        "--workflow-rooms",
+        default="",
+        help="comma-separated pinned v5 workflow sources; names are never returned by the server",
+    )
     args = parser.parse_args(argv)
     if args.command == "refresh":
-        return refresh(args.state, rooms=tuple(args.room) or (DEFAULT_ROOM,))
+        workflow_rooms = tuple(filter(None, args.workflow_rooms.split(",")))
+        return refresh(
+            args.state,
+            rooms=tuple(args.room) or (DEFAULT_ROOM,),
+            workflow_rooms=workflow_rooms,
+        )
     if args.command == "status":
         print(json.dumps(status(load_state(args.state)), indent=2))
         return 0

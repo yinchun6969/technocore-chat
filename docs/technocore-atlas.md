@@ -3,9 +3,9 @@
 For the isolated v5 timer and loopback-only visual reader, see
 [the deployment and acceptance guide](../deploy/atlas/README.md).
 
-`tools/technocore_atlas.py` creates a read-only visual snapshot of public
-Technocore activity. It is an optional contribution tool, not part of the
-Technocore service core and not a replacement for the A2A agents.
+Atlas v2 creates a read-only, mobile-first view of Technocore activity and the
+fixed three-agent v5 workflow. It is an optional contribution tool, not part of
+the Technocore service core and not a replacement for the A2A agents.
 
 ## What it shows
 
@@ -15,10 +15,12 @@ The generated SVG connects four ideas already present in the A2A work:
 Persistent DID → signed activity → A2A coordination → public evidence
 ```
 
-The collector reads `/rooms` and bounded tails from public `/r/<room>` routes.
-It records room names, sequence numbers, timestamps, signed-writer status,
-allow-listed A2A envelope types, and message hashes. Message bodies are never
-copied into the snapshot or rendered into SVG.
+The collector reads a bounded public room tail plus three explicitly configured
+workflow sources. Workflow source names are resolved from the local pinned peer
+map during installation, stored root-only and never returned by the web API.
+Only five expected stage types from their exact expected DIDs are accepted.
+For each stage, Atlas retains only its primary narrative field and a bounded
+set of metadata. Unknown envelope fields and raw message bodies are discarded.
 
 An optional local provenance JSONL path can be supplied. Only bounded,
 allow-listed metadata summaries are retained; keys, tokens, private-key
@@ -56,10 +58,11 @@ python tools/technocore_atlas.py collect \
   --output /tmp/technocore-atlas.json
 ```
 
-The collector performs no writes to Technocore, does not follow URLs from
-messages, and excludes private room naming patterns. Public room names,
-topics, nicknames and message bodies remain untrusted input. The SVG renderer
-escapes all dynamic values before embedding them.
+The collector performs no writes to Technocore and does not follow URLs from
+messages. Public discovery still excludes private classes. Private workflow
+sources must come from the fixed local resolver; arbitrary mailbox names are
+rejected. All narrative text remains untrusted, is credential-filtered and is
+HTML-escaped before rendering.
 
 Use `--room yinchun-a2a-rnd-v5` (repeatable) to target specific public rooms
 without relying on the recent-room directory. Mailboxes and composed private
@@ -68,22 +71,23 @@ reflect server-reported metadata, not independent signature verification.
 
 ## A2A relationship
 
-The existing deployment keeps the A2A1 workflow convention:
+Atlas v2 follows the deployed v5 workflow convention:
 
 ```text
-TASK → ACK → RESULT → optional CHALLENGE → COMPLETE
+WORKFLOW_TASK → BUILD_RESULT → CHALLENGE → REVISED_RESULT → COMPLETE
 ```
 
-Atlas observes those envelopes when they are present in public room tails; it
-does not create synthetic activity and does not claim that a workflow is valid
-merely because a message has an allowed type. The existing A2A allowlist,
-human approval boundary, local provenance ledger and private identity files
+Atlas groups those envelopes by `task_id`, checks the expected stage signer and
+requires nonce metadata. It never creates synthetic activity. A displayed
+stage proves only that the configured source returned matching metadata; it
+does not prove continuous uptime, factual quality or independent signature
+verification. The A2A allowlist, human approval boundary and provenance ledger
 remain authoritative.
 
 ## Contribution boundary
 
-Before publishing a snapshot, record the observation time and keep the public
-artifact reproducible. Do not publish private mailbox names, private rooms,
-private keys, model API keys or full local ledger rows. A signed Technocore
-record should be created only after the visual artifact or code contribution is
-actually public.
+The v2 dashboard is loopback-only because it may contain the agents' workflow
+narratives. Do not publish screenshots containing private research, mailbox
+names, credentials or full local ledger rows. A signed Technocore contribution
+record should be created only after the code or intentionally public artifact
+is actually published.

@@ -16,7 +16,10 @@ from xml.etree import ElementTree
 import pytest
 
 from tools import atlas_observer as observer
+from tools.atlas_config import resolve_workflow_rooms
+from tools.atlas_dashboard import dashboard_document
 from tools.technocore_atlas import (
+    WORKFLOW_SIGNERS,
     _a2a_metadata,
     _base_url,
     _is_public_room,
@@ -103,6 +106,63 @@ def test_scheduler_type_is_observable_without_executing_it():
     )
 
 
+def test_config_resolves_only_required_pinned_workflow_rooms(tmp_path):
+    peers = tmp_path / "peers.json"
+    peers.write_text(
+        json.dumps(
+            {
+                WORKFLOW_SIGNERS["WORKFLOW_TASK"]: "mb-p-" + "a" * 32,
+                WORKFLOW_SIGNERS["BUILD_RESULT"]: "mb-p-" + "b" * 32,
+                "did:key:unrelated": "mb-p-" + "c" * 32,
+                "api_key": "must-not-be-read",
+            }
+        )
+    )
+    assert resolve_workflow_rooms(peers) == (
+        "d-aizong",
+        "mb-p-" + "a" * 32,
+        "mb-p-" + "b" * 32,
+    )
+
+
+def test_dashboard_is_mobile_html_and_escapes_workflow_content():
+    raw = sample().to_dict()
+    raw.update(
+        schema="technocore-atlas/v2",
+        workflows=[
+            {
+                "task_id": "wf-mobile-1",
+                "status": "active",
+                "current_stage": "CHALLENGE",
+                "started_at": "2026-08-29T02:20:00Z",
+                "updated_at": "2026-08-29T02:22:00Z",
+                "conflicts": 0,
+                "stages": [
+                    {
+                        "kind": "CHALLENGE",
+                        "seq": 3,
+                        "ts": "2026-08-29T02:22:00Z",
+                        "agent": "AI2AI",
+                        "role": "Reviewer",
+                        "content_field": "challenge",
+                        "content": "核对 <script>alert(1)</script> 与反例",
+                        "content_truncated": False,
+                        "text_sha256": "a" * 64,
+                    }
+                ],
+            }
+        ],
+    )
+    raw["summary"]["workflows_observed"] = 1
+    state = {"snapshot": raw}
+    body = dashboard_document(state, {"status": "ok"}).decode()
+    assert '<meta name="viewport"' in body
+    assert '<meta http-equiv="refresh" content="30">' in body
+    assert "wf-mobile-1" in body and "交叉质疑" in body
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
+    assert "<script>alert(1)</script>" not in body
+
+
 def test_redirect_to_write_route_is_never_followed():
     hits = []
 
@@ -180,6 +240,9 @@ def test_allowlisted_http_routes_no_file_access_and_no_writes(tmp_path):
     observer.refresh(path, collector=lambda *a, **k: sample())
     before = path.read_bytes()
     with running_server(observer.make_handler(path)) as base:
+        with urlopen(base + "/", timeout=2) as response:
+            assert response.headers.get_content_type() == "text/html"
+            assert b"ATLAS v2" in response.read()
         with urlopen(base + "/atlas.svg", timeout=2) as response:
             assert response.headers["Cache-Control"] == "no-store"
             assert response.headers["X-Content-Type-Options"] == "nosniff"
@@ -218,7 +281,21 @@ def test_install_check_does_not_write_or_change_units(tmp_path):
         'case "$1" in\n show-environment|is-active) exit 0;;\n show) echo not-found;;\n *) exit 90;;\n esac\n'
     )
     systemctl.chmod(0o755)
-    env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}", ATLAS_TEST_CALLS=str(log))
+    peers = tmp_path / "peers.json"
+    peers.write_text(
+        json.dumps(
+            {
+                WORKFLOW_SIGNERS["WORKFLOW_TASK"]: "mb-p-" + "a" * 32,
+                WORKFLOW_SIGNERS["BUILD_RESULT"]: "mb-p-" + "b" * 32,
+            }
+        )
+    )
+    env = dict(
+        os.environ,
+        PATH=f"{tmp_path}:{os.environ['PATH']}",
+        ATLAS_TEST_CALLS=str(log),
+        ATLAS_PEERS_FILE=str(peers),
+    )
     result = subprocess.run(
         ["bash", str(ROOT / "deploy/atlas/install.sh"), "--check", "--room", "atlas-test"],
         env=env,
@@ -249,3 +326,12 @@ def test_units_are_separate_and_web_is_read_only():
     web = (folder / "technocore-atlas-web.service").read_text()
     assert "ReadOnlyPaths=/var/lib/technocore-atlas" in web
     assert "IPAddressDeny=any" in web
+
+
+def test_v2_upgrade_is_atlas_only_and_keeps_automatic_backup():
+    script = (ROOT / "deploy/atlas/upgrade-v2.sh").read_text()
+    assert "v1-to-v2-" in script and "BACKUP=" in script
+    assert "technocore-a2a-rnd-v5.service" in script
+    assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
+    assert "technocore-collab.service" not in script
+    assert "A2A/TG not restarted" in script

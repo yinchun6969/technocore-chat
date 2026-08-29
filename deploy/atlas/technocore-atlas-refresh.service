@@ -10,7 +10,7 @@ User=technocore-atlas
 WorkingDirectory=/opt/technocore-atlas
 Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=/etc/technocore-atlas.conf
-ExecStart=/usr/bin/python3 -m tools.atlas_observer refresh --room ${ATLAS_ROOM}
+ExecStart=/usr/bin/python3 -m tools.atlas_observer refresh --room ${ATLAS_ROOM} --workflow-rooms ${ATLAS_WORKFLOW_ROOMS}
 StateDirectory=technocore-atlas
 StateDirectoryMode=0700
 UMask=0077

@@ -29,6 +29,12 @@ if [[ -z "$ATLAS_ROOM" ]]; then
   fi
 fi
 [[ -n "$ATLAS_ROOM" ]] || fail 'Cannot establish the current v5 identity room. Re-run with --room exact-public-room.'
+PEERS_FILE="${ATLAS_PEERS_FILE:-/opt/technocore-a2a/state/peers.json}"
+ATLAS_WORKFLOW_ROOMS="$(
+  cd "$SOURCE_ROOT"
+  PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m tools.atlas_config "$PEERS_FILE"
+)" || fail 'Cannot resolve the two pinned v5 workflow mailboxes; no files written.'
+[[ -n "$ATLAS_WORKFLOW_ROOMS" ]] || fail 'No v5 workflow sources resolved; no files written.'
 TARGETS=(
   /opt/technocore-atlas
   /etc/technocore-atlas.conf
@@ -45,19 +51,21 @@ done
 for unit in technocore-atlas-refresh.service technocore-atlas-refresh.timer technocore-atlas-web.service; do
   [[ "$(systemctl show "$unit" -p LoadState --value)" == not-found ]] || fail "Existing unit retained: $unit"
 done
-for source in tools/__init__.py tools/technocore_atlas.py tools/atlas_observer.py deploy/atlas/tc-atlas deploy/atlas/technocore-atlas-refresh.service deploy/atlas/technocore-atlas-refresh.timer deploy/atlas/technocore-atlas-web.service; do
+for source in tools/__init__.py tools/technocore_atlas.py tools/atlas_dashboard.py tools/atlas_config.py tools/atlas_observer.py deploy/atlas/tc-atlas deploy/atlas/technocore-atlas-refresh.service deploy/atlas/technocore-atlas-refresh.timer deploy/atlas/technocore-atlas-web.service; do
   [[ -f "$SOURCE_ROOT/$source" && ! -L "$SOURCE_ROOT/$source" ]] || fail "Missing source: $source"
 done
 (
   cd "$SOURCE_ROOT"
-  PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 - "$ATLAS_ROOM" <<'PY'
+  PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 - "$ATLAS_ROOM" "$ATLAS_WORKFLOW_ROOMS" <<'PY'
 import socket
 import sys
-from tools.technocore_atlas import _is_public_room
+from tools.technocore_atlas import _is_public_room, _is_workflow_room
 if sys.version_info < (3, 12):
     raise SystemExit('Python 3.12+ required; no packages were installed')
 if not _is_public_room(sys.argv[1]):
     raise SystemExit('Refusing private/mailbox/invalid room name')
+if not all(_is_workflow_room(room) for room in sys.argv[2].split(',')):
+    raise SystemExit('Refusing unpinned workflow source')
 with socket.socket() as sock:
     sock.bind(('127.0.0.1', 8787))
 print('PREFLIGHT_OK: Python, public room and loopback port checked')
@@ -78,8 +86,8 @@ on_error() {
 }
 trap on_error ERR
 install -d -m 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
-install -m 0644 "$SOURCE_ROOT/tools/__init__.py" "$SOURCE_ROOT/tools/technocore_atlas.py" "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/
-printf 'ATLAS_ROOM=%s\n' "$ATLAS_ROOM" > /etc/technocore-atlas.conf
+install -m 0644 "$SOURCE_ROOT/tools/__init__.py" "$SOURCE_ROOT/tools/technocore_atlas.py" "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_config.py" "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/
+printf 'ATLAS_ROOM=%s\nATLAS_WORKFLOW_ROOMS=%s\n' "$ATLAS_ROOM" "$ATLAS_WORKFLOW_ROOMS" > /etc/technocore-atlas.conf
 chmod 0600 /etc/technocore-atlas.conf
 install -m 0755 "$SOURCE_ROOT/deploy/atlas/tc-atlas" /usr/local/bin/tc-atlas
 for unit in technocore-atlas-refresh.service technocore-atlas-refresh.timer technocore-atlas-web.service; do
@@ -91,6 +99,6 @@ systemctl is-active --quiet technocore-atlas-web.service
 systemctl is-active --quiet technocore-atlas-refresh.timer
 systemctl start --no-block technocore-atlas-refresh.service
 trap - ERR
-echo 'ATLAS_INSTALLED: 127.0.0.1:8787 only; initial collection pending.'
-echo "room=$ATLAS_ROOM; no model calls, keys, mailbox reads or A2A/TG restarts"
+echo 'ATLAS_V2_INSTALLED: 127.0.0.1:8787 only; initial collection pending.'
+echo "room=$ATLAS_ROOM; pinned workflow sources=3; no model calls, keys or A2A/TG restarts"
 echo 'Check: tc-atlas status | View: SSH tunnel to localhost:8787 | Rollback: tc-atlas stop'

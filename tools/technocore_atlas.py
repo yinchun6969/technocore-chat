@@ -33,7 +33,7 @@ from urllib.error import HTTPError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-USER_AGENT = "technocore-atlas/0.1"
+USER_AGENT = "technocore-atlas/0.2"
 MAX_RESPONSE_BYTES = 2_000_000
 ROOM_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 DID_RE = re.compile(r"^did:key:z6Mk[A-Za-z0-9]+$")
@@ -49,8 +49,43 @@ A2A_TYPES = {
     "REVISED_RESULT",
     "SCHEDULER_REQUEST",
 }
+WORKFLOW_STAGE_ORDER = (
+    "WORKFLOW_TASK",
+    "BUILD_RESULT",
+    "CHALLENGE",
+    "REVISED_RESULT",
+    "COMPLETE",
+)
+WORKFLOW_CONTENT_FIELDS = {
+    "WORKFLOW_TASK": "goal",
+    "BUILD_RESULT": "build_result",
+    "CHALLENGE": "challenge",
+    "REVISED_RESULT": "revised_result",
+    "COMPLETE": "final_summary",
+}
+WORKFLOW_SIGNERS = {
+    "WORKFLOW_TASK": "did:key:z6MkfGtYxQg6e2u7aLBJVzowxgtgTmYzzXo227W9AvVQwq3p",
+    "BUILD_RESULT": "did:key:z6MktU13Pf4jVf6Ck5D3pwNYX2PVUAfNC61ytciyb4Coyh7e",
+    "CHALLENGE": "did:key:z6Mkrs9FviuKvQnAnexWfF1RWduNh6CqydrMAw8RUo73zoje",
+    "REVISED_RESULT": "did:key:z6MktU13Pf4jVf6Ck5D3pwNYX2PVUAfNC61ytciyb4Coyh7e",
+    "COMPLETE": "did:key:z6MkfGtYxQg6e2u7aLBJVzowxgtgTmYzzXo227W9AvVQwq3p",
+}
+WORKFLOW_AGENTS = {
+    "WORKFLOW_TASK": ("Love8", "Scout"),
+    "BUILD_RESULT": ("Aizong", "Builder"),
+    "CHALLENGE": ("AI2AI", "Reviewer"),
+    "REVISED_RESULT": ("Aizong", "Builder"),
+    "COMPLETE": ("Love8", "Scout"),
+}
 SECRET_KEY_RE = re.compile(r"(?:secret|token|password|private|api[_-]?key|seed|credential)", re.I)
 SAFE_LABEL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
+WORKFLOW_ROOM_RE = re.compile(r"^(?:d-aizong|mb-p-[a-z0-9]{16,64})$")
+SENSITIVE_TEXT_RE = re.compile(
+    r"-----BEGIN|(?:api[_-]?key|access[_-]?token|token|password|secret)\s*[:=]\s*\S+|"
+    r"bearer\s+[A-Za-z0-9._~+/-]{12,}|\b\d{7,12}:[A-Za-z0-9_-]{25,}",
+    re.I,
+)
+MAX_WORKFLOW_CONTENT_CHARS = 2600
 
 
 def _base_url(value: str) -> str:
@@ -118,22 +153,39 @@ def _short_author(raw: str) -> tuple[str, str, bool]:
     return stable_id, f"~{value[:20]}", False
 
 
-def _a2a_metadata(text: str) -> tuple[str, str | None]:
+def _a2a_payload(text: str) -> tuple[str, str | None, dict[str, Any] | None]:
     """Extract only bounded, allow-listed workflow metadata from a message."""
 
     if not text.startswith("A2A1 "):
-        return "MESSAGE", None
+        return "MESSAGE", None, None
     try:
         payload = json.loads(text[5:])
     except (TypeError, ValueError, json.JSONDecodeError):
-        return "A2A1_INVALID", None
+        return "A2A1_INVALID", None, None
     if not isinstance(payload, dict):
-        return "A2A1_INVALID", None
+        return "A2A1_INVALID", None, None
     kind = payload.get("type")
     kind = kind if isinstance(kind, str) and kind in A2A_TYPES else "A2A1_OTHER"
     task_id = payload.get("task_id")
     task_id = task_id if isinstance(task_id, str) and TASK_ID_RE.fullmatch(task_id) else None
+    return kind, task_id, payload
+
+
+def _a2a_metadata(text: str) -> tuple[str, str | None]:
+    kind, task_id, _ = _a2a_payload(text)
     return kind, task_id
+
+
+def _safe_workflow_content(value: Any) -> tuple[str | None, bool]:
+    """Return display-only narrative text with credentials and controls removed."""
+
+    if not isinstance(value, str) or not value.strip():
+        return None, False
+    cleaned = "".join(char for char in value if char in "\n\t" or ord(char) >= 32).strip()
+    if SENSITIVE_TEXT_RE.search(cleaned):
+        return "[敏感内容已隐藏]", False
+    truncated = len(cleaned) > MAX_WORKFLOW_CONTENT_CHARS
+    return cleaned[:MAX_WORKFLOW_CONTENT_CHARS], truncated
 
 
 @dataclass(frozen=True)
@@ -148,6 +200,33 @@ class TraceMessage:
     kind: str
     task_id: str | None
     text_sha256: str
+    content_field: str | None = None
+    content: str | None = None
+    content_truncated: bool = False
+
+
+@dataclass(frozen=True)
+class WorkflowStage:
+    kind: str
+    seq: int | None
+    ts: str
+    agent: str
+    role: str
+    content_field: str
+    content: str
+    content_truncated: bool
+    text_sha256: str
+
+
+@dataclass(frozen=True)
+class WorkflowTrace:
+    task_id: str
+    status: str
+    current_stage: str
+    started_at: str
+    updated_at: str
+    stages: tuple[WorkflowStage, ...]
+    conflicts: int = 0
 
 
 @dataclass(frozen=True)
@@ -177,8 +256,10 @@ class Snapshot:
     base_url: str
     rooms: tuple[TraceRoom, ...]
     summary: dict[str, int]
+    workflows: tuple[WorkflowTrace, ...] = field(default_factory=tuple)
     local_events: tuple[LocalTraceEvent, ...] = field(default_factory=tuple)
     collection_errors: int = 0
+    workflow_collection_errors: int = 0
     local_provenance_events: int = 0
 
     def to_dict(self) -> dict[str, Any]:
@@ -199,6 +280,12 @@ def _is_public_room(name: str) -> bool:
     return True
 
 
+def _is_workflow_room(name: str) -> bool:
+    """Accept only pinned v5 workflow source classes, never arbitrary paths."""
+
+    return bool(WORKFLOW_ROOM_RE.fullmatch(name))
+
+
 def _trace_message(row: Any) -> TraceMessage | None:
     if not isinstance(row, dict):
         return None
@@ -207,7 +294,11 @@ def _trace_message(row: Any) -> TraceMessage | None:
     text = row.get("text", "")
     if not isinstance(text, str):
         text = str(text)
-    kind, task_id = _a2a_metadata(text)
+    kind, task_id, payload = _a2a_payload(text)
+    content_field = WORKFLOW_CONTENT_FIELDS.get(kind)
+    content, truncated = _safe_workflow_content(
+        payload.get(content_field) if payload is not None and content_field else None
+    )
     nonce_value = row.get("nonce")
     nonce = str(nonce_value) if nonce_value is not None else None
     return TraceMessage(
@@ -221,7 +312,109 @@ def _trace_message(row: Any) -> TraceMessage | None:
         kind=kind,
         task_id=task_id,
         text_sha256=_sha256(text),
+        content_field=content_field if content is not None else None,
+        content=content,
+        content_truncated=truncated,
     )
+
+
+def _workflow_stage(row: Any) -> tuple[str, WorkflowStage] | None:
+    """Validate one signed v5 stage and retain only its primary narrative field."""
+
+    if not isinstance(row, dict):
+        return None
+    raw_from = str(row.get("from", ""))
+    nonce = row.get("nonce")
+    text = row.get("text")
+    if not isinstance(text, str) or nonce is None:
+        return None
+    kind, task_id, payload = _a2a_payload(text)
+    if (
+        kind not in WORKFLOW_STAGE_ORDER
+        or not task_id
+        or not task_id.startswith("wf-")
+        or raw_from != WORKFLOW_SIGNERS[kind]
+        or payload is None
+    ):
+        return None
+    field_name = WORKFLOW_CONTENT_FIELDS[kind]
+    content, truncated = _safe_workflow_content(payload.get(field_name))
+    if content is None:
+        return None
+    agent, role = WORKFLOW_AGENTS[kind]
+    return task_id, WorkflowStage(
+        kind=kind,
+        seq=_int_or_none(row.get("seq")),
+        ts=str(row.get("ts", ""))[:64],
+        agent=agent,
+        role=role,
+        content_field=field_name,
+        content=content,
+        content_truncated=truncated,
+        text_sha256=_sha256(text),
+    )
+
+
+def _workflow_sort_key(stage: WorkflowStage) -> tuple[str, int]:
+    return stage.ts, stage.seq if stage.seq is not None else -1
+
+
+def _collect_workflows(
+    base: str,
+    rooms: tuple[str, ...],
+    timeout: float,
+    fetcher: Callable[[str, float], dict[str, Any]],
+) -> tuple[tuple[WorkflowTrace, ...], int]:
+    grouped: dict[str, dict[str, list[WorkflowStage]]] = {}
+    errors = 0
+    for room in dict.fromkeys(rooms):
+        try:
+            detail = fetcher(
+                _url(base, f"/r/{quote(room, safe='')}", format="json", limit=200), timeout
+            )
+            rows = detail.get("messages")
+            if not isinstance(rows, list):
+                raise ValueError("workflow room response must contain messages")
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            errors += 1
+            continue
+        for row in rows:
+            parsed = _workflow_stage(row)
+            if parsed is None:
+                continue
+            task_id, stage = parsed
+            bucket = grouped.setdefault(task_id, {}).setdefault(stage.kind, [])
+            if all(existing.text_sha256 != stage.text_sha256 for existing in bucket):
+                bucket.append(stage)
+
+    traces: list[WorkflowTrace] = []
+    for task_id, kinds in grouped.items():
+        stages: list[WorkflowStage] = []
+        conflicts = 0
+        for kind in WORKFLOW_STAGE_ORDER:
+            candidates = kinds.get(kind, [])
+            if not candidates:
+                continue
+            conflicts += max(0, len(candidates) - 1)
+            stages.append(max(candidates, key=_workflow_sort_key))
+        present = {stage.kind for stage in stages}
+        current = next((kind for kind in reversed(WORKFLOW_STAGE_ORDER) if kind in present), "")
+        complete = all(kind in present for kind in WORKFLOW_STAGE_ORDER)
+        traces.append(
+            WorkflowTrace(
+                task_id=task_id,
+                status="complete" if complete else "active",
+                current_stage=current,
+                started_at=next(
+                    (stage.ts for stage in stages if stage.kind == "WORKFLOW_TASK"), ""
+                ),
+                updated_at=max((stage.ts for stage in stages), default=""),
+                stages=tuple(stages),
+                conflicts=conflicts,
+            )
+        )
+    traces.sort(key=lambda trace: (trace.updated_at, trace.task_id), reverse=True)
+    return tuple(traces[:20]), errors
 
 
 def _public_room_names(listing: dict[str, Any], limit: int) -> list[str]:
@@ -245,6 +438,7 @@ def collect_snapshot(
     timeout: float = 10.0,
     fetcher: Callable[[str, float], dict[str, Any]] = fetch_json,
     selected_rooms: tuple[str, ...] = (),
+    workflow_rooms: tuple[str, ...] = (),
 ) -> Snapshot:
     """Read public room metadata and bounded public tails; never writes."""
 
@@ -258,6 +452,8 @@ def collect_snapshot(
         raise ValueError("timeout must be between 0 and 30 seconds")
     if len(selected_rooms) > room_limit or any(not _is_public_room(r) for r in selected_rooms):
         raise ValueError("selected rooms must be public non-mailbox names within room_limit")
+    if len(workflow_rooms) > 8 or any(not _is_workflow_room(r) for r in workflow_rooms):
+        raise ValueError("workflow rooms must be pinned v5 room names within limit")
     if selected_rooms:
         names = list(dict.fromkeys(selected_rooms))
     else:
@@ -290,6 +486,9 @@ def collect_snapshot(
             )
         )
 
+    workflows, workflow_collection_errors = _collect_workflows(
+        base, workflow_rooms, timeout, fetcher
+    )
     all_messages = [message for room in rooms for message in room.messages]
     kinds = Counter(message.kind for message in all_messages)
     summary = {
@@ -303,14 +502,18 @@ def collect_snapshot(
         "workflow_tasks": sum(message.task_id is not None for message in all_messages),
         "invalid_a2a_messages": kinds["A2A1_INVALID"],
         "collection_errors": collection_errors,
+        "workflows_observed": len(workflows),
+        "active_workflows": sum(workflow.status == "active" for workflow in workflows),
     }
     return Snapshot(
-        schema="technocore-atlas/v1",
+        schema="technocore-atlas/v2",
         observed_at=datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         base_url=base,
         rooms=tuple(rooms),
         summary=summary,
+        workflows=workflows,
         collection_errors=collection_errors,
+        workflow_collection_errors=workflow_collection_errors,
     )
 
 
@@ -366,8 +569,10 @@ def _with_local_events(snapshot: Snapshot, events: tuple[LocalTraceEvent, ...]) 
         base_url=snapshot.base_url,
         rooms=snapshot.rooms,
         summary=snapshot.summary,
+        workflows=snapshot.workflows,
         local_events=events,
         collection_errors=snapshot.collection_errors,
+        workflow_collection_errors=snapshot.workflow_collection_errors,
         local_provenance_events=len(events),
     )
 
@@ -655,18 +860,40 @@ def snapshot_from_dict(data: dict[str, Any]) -> Snapshot:
                 messages=tuple(messages),
             )
         )
+    workflows: list[WorkflowTrace] = []
+    for raw_workflow in data.get("workflows", []):
+        if not isinstance(raw_workflow, dict):
+            continue
+        stages = tuple(
+            WorkflowStage(**raw_stage)
+            for raw_stage in raw_workflow.get("stages", [])
+            if isinstance(raw_stage, dict)
+        )
+        workflows.append(
+            WorkflowTrace(
+                task_id=str(raw_workflow.get("task_id", "")),
+                status=str(raw_workflow.get("status", "active")),
+                current_stage=str(raw_workflow.get("current_stage", "")),
+                started_at=str(raw_workflow.get("started_at", "")),
+                updated_at=str(raw_workflow.get("updated_at", "")),
+                stages=stages,
+                conflicts=int(raw_workflow.get("conflicts", 0)),
+            )
+        )
     return Snapshot(
         schema=str(data.get("schema", "technocore-atlas/v1")),
         observed_at=str(data.get("observed_at", "unknown")),
         base_url=str(data.get("base_url", "")),
         rooms=tuple(rooms),
         summary={str(key): int(value) for key, value in dict(data.get("summary", {})).items()},
+        workflows=tuple(workflows),
         local_events=tuple(
             LocalTraceEvent(**event)
             for event in data.get("local_events", [])
             if isinstance(event, dict)
         ),
         collection_errors=int(data.get("collection_errors", 0)),
+        workflow_collection_errors=int(data.get("workflow_collection_errors", 0)),
         local_provenance_events=int(data.get("local_provenance_events", 0)),
     )
 
@@ -699,6 +926,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--room", action="append", default=[], help="observe only this public room; repeatable"
     )
     collect.add_argument(
+        "--workflow-room",
+        action="append",
+        default=[],
+        help="observe one explicitly pinned v5 workflow source; repeatable",
+    )
+    collect.add_argument(
         "--ledger",
         help="optional local provenance JSONL; only safe metadata summaries are retained",
     )
@@ -722,6 +955,7 @@ def main(argv: list[str] | None = None) -> int:
                 messages_per_room=args.messages_per_room,
                 timeout=args.timeout,
                 selected_rooms=tuple(args.room),
+                workflow_rooms=tuple(args.workflow_room),
             )
             _write_json(
                 args.output,
