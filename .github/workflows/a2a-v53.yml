@@ -44,10 +44,10 @@ jobs:
 
       - name: Research context and cadence
         run: |
-          python3 deploy/a2a-v5/test_research_context_v32.py
-          python3 deploy/a2a-v5/test_research_cadence_v321.py
+          sudo -E "$(command -v python3)" deploy/a2a-v5/test_research_context_v32.py
+          sudo -E "$(command -v python3)" deploy/a2a-v5/test_research_cadence_v321.py
 
       - name: Rollback-safe installer coverage
         run: |
-          python3 deploy/a2a-v5/test_research_installer_v32.py
-          python3 deploy/a2a-v5/test_research_cadence_installer_v321.py
+          sudo -E "$(command -v python3)" deploy/a2a-v5/test_research_installer_v32.py
+          sudo -E "$(command -v python3)" deploy/a2a-v5/test_research_cadence_installer_v321.py
