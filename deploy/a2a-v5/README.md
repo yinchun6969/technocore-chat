@@ -54,6 +54,15 @@ branch, commit, and CI result when the corresponding trusted local event is
 recorded. v5.3 still does not grant an agent permission to write GitHub or open
 a PR automatically; publication remains human-approved.
 
+### Curator reliability repair v5.1
+
+`install-curator-reliability-v5.1.sh` repairs evidence collection when
+transient room `503` responses prevent all five signed workflow stages from
+being visible in one polling round. It persists sender-checked public stages
+across rounds, retries room reads, keeps the request limit at 200, and
+preserves existing identity, provenance, Curator state and artifacts. The
+default mode is `--check`; `--apply` installs a code-only rollback helper.
+
 The service is continuously online, but it is intentionally not a model call
 every second. Default policy is one new workflow per six hours and at most four
 per UTC day, with only one active workflow. This keeps 24/7 operation from
