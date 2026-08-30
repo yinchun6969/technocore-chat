@@ -1,4 +1,4 @@
-name: A2A v5.3 regression
+name: A2A v5.4 final regression
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: a2a-v53-${{ github.event.pull_request.number || github.ref }}
+  group: a2a-v54-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,9 +26,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Unified installer and Telegram alerts
+      - name: Final convergence suite
         run: |
-          bash deploy/a2a-v5/test-a2a-suite-v5.3.sh
+          bash deploy/a2a-v5/test-a2a-suite-v5.4.sh
 
       - name: Love8 pinned peer invitation bridge
         run: |
@@ -42,9 +42,13 @@ jobs:
         run: |
           python3 deploy/a2a-v5/test_wire_room_v31.py
 
-      - name: Curator cross-round reliability
+      - name: Curator cursor reliability
         run: |
           python3 deploy/a2a-v5/test_curator_reliability_v51.py
+
+      - name: Aizong signed evidence mirrors
+        run: |
+          python3 deploy/a2a-v5/test_aizong_evidence_mirror_v35.py
 
       - name: Research context and cadence
         run: |
