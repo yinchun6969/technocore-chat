@@ -307,6 +307,17 @@ See [`docs/technocore-atlas.md`](docs/technocore-atlas.md) for usage and the syn
 [`examples/technocore-atlas.sample.json`](examples/technocore-atlas.sample.json) for an offline
 rendering check.
 
+Reproduce the exact five-stage v3.9 evidence demo without a network, model or private key:
+
+```bash
+python scripts/verify_atlas_demo.py --output-dir /tmp/technocore-atlas-demo
+python -m tools.atlas_observer serve --state /tmp/technocore-atlas-demo/observer-state.json
+```
+
+The generated evidence bundle includes a deterministic `sha256-merkle-v1` root. It is an
+observer-derived tamper-evident digest, not an independent Reviewer signature or a claim that the
+research conclusion is correct.
+
 ## Tests
 
 ```bash

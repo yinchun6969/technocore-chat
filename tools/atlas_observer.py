@@ -28,6 +28,9 @@ DEFAULT_ROOM = "yinchun-a2a-rnd-v5"
 DEFAULT_STATE = Path("/var/lib/technocore-atlas/observer.json")
 STALE_SECONDS = 900
 MAX_STATE_BYTES = 8_000_000
+TRANSIENT_HTTP_CODES = frozenset({429, 502, 503, 504})
+FETCH_ATTEMPTS = 2
+RETRY_DELAY_SECONDS = 0.35
 
 
 def timestamp() -> str:
@@ -79,14 +82,22 @@ def refresh(
     fetch_errors: list[str] = []
 
     def observed_fetch(url: str, timeout: float):
-        try:
-            return fetch_json(url, timeout)
-        except HTTPError as exc:
-            fetch_errors.append(f"HTTP_{exc.code}")
-            raise
-        except OSError:
-            fetch_errors.append("NETWORK_ERROR")
-            raise
+        for attempt in range(FETCH_ATTEMPTS):
+            try:
+                return fetch_json(url, timeout)
+            except HTTPError as exc:
+                if attempt + 1 < FETCH_ATTEMPTS and exc.code in TRANSIENT_HTTP_CODES:
+                    time.sleep(RETRY_DELAY_SECONDS)
+                    continue
+                fetch_errors.append(f"HTTP_{exc.code}")
+                raise
+            except OSError:
+                if attempt + 1 < FETCH_ATTEMPTS:
+                    time.sleep(RETRY_DELAY_SECONDS)
+                    continue
+                fetch_errors.append("NETWORK_ERROR")
+                raise
+        raise AssertionError("unreachable")
 
     try:
         snapshot = collector(

@@ -16,5 +16,40 @@ case "${1:-status}" in
     ;;
   refresh) systemctl start technocore-atlas-refresh.service ;;
   logs) journalctl -u technocore-atlas-refresh.service -u technocore-atlas-web.service -n 40 --no-pager ;;
-  *) echo 'Usage: tc-atlas {status|start|stop|refresh|logs}' >&2; exit 2 ;;
+  task)
+    [[ $# -eq 2 && "$2" =~ ^wf-[A-Za-z0-9._:-]{1,77}$ ]] || {
+      echo 'Usage: tc-atlas task wf-<task-id>' >&2
+      exit 2
+    }
+    TASK_ID="$2" curl --fail --silent --show-error --max-time 5 \
+      http://127.0.0.1:8787/atlas.json | TASK_ID="$2" /usr/bin/python3 -c '
+import json
+import os
+import sys
+
+data = json.load(sys.stdin)
+task_id = os.environ["TASK_ID"]
+workflow = next(
+    (item for item in data.get("snapshot", {}).get("workflows", []) if item.get("task_id") == task_id),
+    None,
+)
+if workflow is None:
+    raise SystemExit(f"task not observed: {task_id}")
+print(f"task_id={task_id}")
+print(f"status={workflow.get('"'"'status'"'"', '"'"'unknown'"'"')}")
+print(f"current_stage={workflow.get('"'"'current_stage'"'"', '"'"'none'"'"')}")
+print(f"conflicts={int(workflow.get('"'"'conflicts'"'"', 0) or 0)}")
+evidence = workflow.get("evidence", [])
+print(f"evidence={len(evidence)}")
+print(f"evidence_algorithm={workflow.get('"'"'evidence_algorithm'"'"', '"'"'none'"'"')}")
+print(f"evidence_root={workflow.get('"'"'evidence_root'"'"', '"'"'none'"'"') or '"'"'none'"'"'}")
+for index, stage in enumerate(workflow.get("stages", []), 1):
+    print(
+        f"stage_{index}={stage.get('"'"'kind'"'"', '"'"'unknown'"'"')} "
+        f"agent={stage.get('"'"'agent'"'"', '"'"'unknown'"'"')} "
+        f"hash={stage.get('"'"'text_sha256'"'"', '"'"''"'"')[:16]}"
+    )
+'
+    ;;
+  *) echo 'Usage: tc-atlas {status|start|stop|refresh|logs|task wf-<task-id>}' >&2; exit 2 ;;
 esac

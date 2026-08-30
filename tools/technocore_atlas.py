@@ -86,6 +86,7 @@ SENSITIVE_TEXT_RE = re.compile(
     re.I,
 )
 MAX_WORKFLOW_CONTENT_CHARS = 2600
+EVIDENCE_ALGORITHM = "sha256-merkle-v1"
 
 
 def _base_url(value: str) -> str:
@@ -216,6 +217,19 @@ class WorkflowStage:
     content: str
     content_truncated: bool
     text_sha256: str
+    signer_did: str = ""
+    nonce: str = ""
+
+
+@dataclass(frozen=True)
+class EvidenceRef:
+    source_type: str
+    payload_sha256: str
+    timestamp: str
+    signer_did: str
+    nonce: str
+    stage: str
+    leaf_sha256: str
 
 
 @dataclass(frozen=True)
@@ -227,6 +241,9 @@ class WorkflowTrace:
     updated_at: str
     stages: tuple[WorkflowStage, ...]
     conflicts: int = 0
+    evidence: tuple[EvidenceRef, ...] = field(default_factory=tuple)
+    evidence_root: str = ""
+    evidence_algorithm: str = EVIDENCE_ALGORITHM
 
 
 @dataclass(frozen=True)
@@ -352,7 +369,45 @@ def _workflow_stage(row: Any) -> tuple[str, WorkflowStage] | None:
         content=content,
         content_truncated=truncated,
         text_sha256=_sha256(text),
+        signer_did=raw_from,
+        nonce=str(nonce)[:32],
     )
+
+
+def _evidence_leaf(task_id: str, stage: WorkflowStage) -> str:
+    """Hash one canonical public stage reference with domain separation."""
+
+    canonical = json.dumps(
+        {
+            "nonce": stage.nonce,
+            "payload_sha256": stage.text_sha256,
+            "signer_did": stage.signer_did,
+            "source_type": "technocore_signed_stage",
+            "stage": stage.kind,
+            "task_id": task_id,
+            "timestamp": stage.ts,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    return hashlib.sha256(b"\x00" + canonical).hexdigest()
+
+
+def evidence_merkle_root(leaves: tuple[str, ...]) -> str:
+    """Return a deterministic domain-separated Merkle root for hex SHA-256 leaves."""
+
+    if not leaves:
+        return ""
+    nodes = [bytes.fromhex(leaf) for leaf in leaves]
+    while len(nodes) > 1:
+        if len(nodes) % 2:
+            nodes.append(nodes[-1])
+        nodes = [
+            hashlib.sha256(b"\x01" + nodes[index] + nodes[index + 1]).digest()
+            for index in range(0, len(nodes), 2)
+        ]
+    return nodes[0].hex()
 
 
 def _workflow_sort_key(stage: WorkflowStage) -> tuple[str, int]:
@@ -400,6 +455,18 @@ def _collect_workflows(
         present = {stage.kind for stage in stages}
         current = next((kind for kind in reversed(WORKFLOW_STAGE_ORDER) if kind in present), "")
         complete = all(kind in present for kind in WORKFLOW_STAGE_ORDER)
+        evidence = tuple(
+            EvidenceRef(
+                source_type="technocore_signed_stage",
+                payload_sha256=stage.text_sha256,
+                timestamp=stage.ts,
+                signer_did=stage.signer_did,
+                nonce=stage.nonce,
+                stage=stage.kind,
+                leaf_sha256=_evidence_leaf(task_id, stage),
+            )
+            for stage in stages
+        )
         traces.append(
             WorkflowTrace(
                 task_id=task_id,
@@ -411,6 +478,10 @@ def _collect_workflows(
                 updated_at=max((stage.ts for stage in stages), default=""),
                 stages=tuple(stages),
                 conflicts=conflicts,
+                evidence=evidence,
+                evidence_root=evidence_merkle_root(
+                    tuple(reference.leaf_sha256 for reference in evidence)
+                ),
             )
         )
     traces.sort(key=lambda trace: (trace.updated_at, trace.task_id), reverse=True)
@@ -869,6 +940,11 @@ def snapshot_from_dict(data: dict[str, Any]) -> Snapshot:
             for raw_stage in raw_workflow.get("stages", [])
             if isinstance(raw_stage, dict)
         )
+        evidence = tuple(
+            EvidenceRef(**raw_evidence)
+            for raw_evidence in raw_workflow.get("evidence", [])
+            if isinstance(raw_evidence, dict)
+        )
         workflows.append(
             WorkflowTrace(
                 task_id=str(raw_workflow.get("task_id", "")),
@@ -878,6 +954,9 @@ def snapshot_from_dict(data: dict[str, Any]) -> Snapshot:
                 updated_at=str(raw_workflow.get("updated_at", "")),
                 stages=stages,
                 conflicts=int(raw_workflow.get("conflicts", 0)),
+                evidence=evidence,
+                evidence_root=str(raw_workflow.get("evidence_root", "")),
+                evidence_algorithm=str(raw_workflow.get("evidence_algorithm", EVIDENCE_ALGORITHM)),
             )
         )
     return Snapshot(

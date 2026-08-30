@@ -30,13 +30,17 @@ for target in /opt/technocore-atlas/tools /etc/technocore-atlas.conf /usr/local/
   [[ -e "$target" && ! -L "$target" ]] || fail "Existing Atlas v2 target is absent or unsafe: $target"
 done
 grep -q '^ATLAS_WORKFLOW_ROOMS=' /etc/technocore-atlas.conf || fail 'Atlas v2 workflow configuration is absent.'
-for source in tools/atlas_dashboard.py tools/atlas_observer.py; do
+for source in tools/atlas_dashboard.py tools/atlas_observer.py tools/technocore_atlas.py; do
   [[ -f "$SOURCE_ROOT/$source" && ! -L "$SOURCE_ROOT/$source" ]] || fail "Missing v3 source: $source"
 done
+[[ -f "$SOURCE_ROOT/deploy/atlas/tc-atlas" && ! -L "$SOURCE_ROOT/deploy/atlas/tc-atlas" ]] || fail 'Missing v3 Atlas CLI.'
 grep -q 'TECHNOCORE // PIXEL QUEST' "$SOURCE_ROOT/tools/atlas_dashboard.py" || fail 'Source checkout is not Atlas v3.'
-compile_files "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py"
+compile_files "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py" "$SOURCE_ROOT/tools/technocore_atlas.py"
+bash -n "$SOURCE_ROOT/deploy/atlas/tc-atlas"
 if cmp -s "$SOURCE_ROOT/tools/atlas_dashboard.py" /opt/technocore-atlas/tools/atlas_dashboard.py && \
-  cmp -s "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/atlas_observer.py; then
+  cmp -s "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/atlas_observer.py && \
+  cmp -s "$SOURCE_ROOT/tools/technocore_atlas.py" /opt/technocore-atlas/tools/technocore_atlas.py && \
+  cmp -s "$SOURCE_ROOT/deploy/atlas/tc-atlas" /usr/local/bin/tc-atlas; then
   echo 'ATLAS_V3_CURRENT_RELEASE_ALREADY_INSTALLED'
   exit 0
 fi
@@ -53,9 +57,11 @@ else
 fi
 
 BACKUP="/opt/technocore-atlas/backups/${BACKUP_KIND}-$(date -u +%Y%m%dT%H%M%SZ)"
-install -d -m 0700 "$BACKUP/tools"
+install -d -m 0700 "$BACKUP/tools" "$BACKUP/bin"
 cp -a /opt/technocore-atlas/tools/atlas_dashboard.py "$BACKUP/tools/"
 cp -a /opt/technocore-atlas/tools/atlas_observer.py "$BACKUP/tools/"
+cp -a /opt/technocore-atlas/tools/technocore_atlas.py "$BACKUP/tools/"
+cp -a /usr/local/bin/tc-atlas "$BACKUP/bin/"
 
 rollback() {
   local exit_code=$?
@@ -64,8 +70,10 @@ rollback() {
   systemctl stop technocore-atlas-refresh.timer technocore-atlas-web.service technocore-atlas-refresh.service >/dev/null 2>&1 || true
   install -d -m 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
   cp -a "$BACKUP/tools/." /opt/technocore-atlas/tools/
+  cp -a "$BACKUP/bin/tc-atlas" /usr/local/bin/tc-atlas
   chmod 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
   chmod 0644 /opt/technocore-atlas/tools/*.py
+  chmod 0755 /usr/local/bin/tc-atlas
   systemctl enable --now technocore-atlas-web.service technocore-atlas-refresh.timer >/dev/null 2>&1 || true
   systemctl start --no-block technocore-atlas-refresh.service >/dev/null 2>&1 || true
   if wait_for_dashboard "$ROLLBACK_MARKER"; then
@@ -78,11 +86,13 @@ rollback() {
 trap rollback ERR
 systemctl stop technocore-atlas-refresh.timer technocore-atlas-web.service technocore-atlas-refresh.service
 install -d -m 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
-install -m 0644 "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/
+install -m 0644 "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py" "$SOURCE_ROOT/tools/technocore_atlas.py" /opt/technocore-atlas/tools/
+install -m 0755 "$SOURCE_ROOT/deploy/atlas/tc-atlas" /usr/local/bin/tc-atlas
 chmod 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
 compile_files \
   /opt/technocore-atlas/tools/atlas_dashboard.py \
-  /opt/technocore-atlas/tools/atlas_observer.py
+  /opt/technocore-atlas/tools/atlas_observer.py \
+  /opt/technocore-atlas/tools/technocore_atlas.py
 (
   cd /opt/technocore-atlas
   PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -c 'import tools.atlas_observer'

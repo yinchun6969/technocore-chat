@@ -90,7 +90,7 @@ local port 8787, remote host 127.0.0.1, remote port 8787. The phone's localhost
 does not reach the VPS unless this tunnel is active. A directly accessible
 mobile URL needs a separately authorized authenticated proxy; not included.
 
-The v3 HTML dashboard polls `/atlas.json` every 10 seconds without reloading the
+The v3.9 HTML dashboard polls `/atlas.json` every 10 seconds without reloading the
 page. `REPLAY` animates already observed stages in order; it never invents a
 new event. Named characters are the three configured Agents. Unnamed helper
 sprites and particles are explicitly decorative and do not claim extra Agents.
@@ -102,12 +102,16 @@ messages, unrelated chat and credential-shaped text are excluded or redacted.
 `/status.json` returns JSON including freshness, last attempt, last success
 and error type. `/atlas.json` returns `{observation, snapshot}` from the same
 atomic state. Other routes are denied, with no directory listing or mutations.
+Each workflow includes a deterministic evidence list and observer-derived
+SHA-256 Merkle root. This digest detects snapshot changes; it is not an
+independent Reviewer signature or proof that the research conclusion is true.
 
 ## Acceptance and controls
 
 ```bash
 sudo tc-atlas status
 sudo tc-atlas logs
+sudo tc-atlas task wf-EXACT-TASK-ID
 curl --fail http://127.0.0.1:8787/status.json
 curl --fail http://127.0.0.1:8787/atlas.json
 ss -ltn 'sport = :8787'

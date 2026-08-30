@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -171,12 +172,12 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     body = dashboard_document(state, {"status": "ok"}).decode()
     assert '<meta name="viewport"' in body
     assert "TECHNOCORE // PIXEL QUEST" in body
-    assert 'fetch(`/atlas.json?v=39&t=${Date.now()}`' in body
+    assert "fetch(`/atlas.json?v=39&t=${Date.now()}`" in body
     assert "setInterval(refresh,10000)" in body
     assert '<canvas id="world"' in body
     assert '<svg class="brand-mark" viewBox="0 0 100 132"' in body
     assert 'class="logo-white"' in body and 'class="logo-cut"' in body
-    assert 'class="logo-cyan"' in body and '#14bee1' in body
+    assert 'class="logo-cyan"' in body and "#14bee1" in body
     assert "technocore" in body and "Atlas v3.9" in body
     assert "A2A v5.4" in body
     assert 'navy="#081631",cyan="#20e2f2",white="#f7f8ff"' in body
@@ -187,12 +188,12 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     assert 'id="language"' in body
     assert 'localStorage.setItem("atlas-language",lang)' in body
     assert 'navigator.language?.toLowerCase().startsWith("zh")' in body
-    assert 'Agent Relay Workflow Observer' in body
-    assert 'Signed original' in body
-    assert 'applyLanguage(lang,false)' in body
+    assert "Agent Relay Workflow Observer" in body
+    assert "Signed original" in body
+    assert "applyLanguage(lang,false)" in body
     assert 'id="focus"' in body and 'id="progress-fill"' in body
     assert 'role="progressbar"' in body
-    assert 'document.documentElement.requestFullscreen?.()' in body
+    assert "document.documentElement.requestFullscreen?.()" in body
     assert 'screen.orientation?.lock?.("landscape")' in body
     assert 'document.addEventListener("fullscreenchange"' in body
     assert "updateProgress(journey)" in body
@@ -221,6 +222,10 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     assert "sfxMaster.gain.setValueAtTime(.72" in body
     assert "stageBump=i===idx?bump:0" in body
     assert "flagProgress" in body
+    assert "Deterministic evidence digest" in body
+    assert "Observer-derived digest" in body
+    assert "wf.evidence_root" in body
+    assert 'make("code","stage-proof"' in body
     assert "@media(min-width:900px)" in body
     assert "present.size/order.length" in body
     assert 'const bubbleCopy=lang==="en"?actions[kind]' in body
@@ -271,15 +276,43 @@ def test_failed_refresh_preserves_snapshot_and_hides_error_details(tmp_path):
 
 
 def test_refresh_exposes_only_sanitized_http_error_code(tmp_path, monkeypatch):
+    calls = 0
+
     def unavailable(url, timeout):
+        nonlocal calls
+        calls += 1
         raise HTTPError(url, 503, "secret details", Message(), None)
 
     monkeypatch.setattr(observer, "fetch_json", unavailable)
+    monkeypatch.setattr(observer.time, "sleep", lambda _: None)
     path = tmp_path / "state.json"
     assert observer.refresh(path) == 1
     state = observer.load_state(path)
     assert state["error_code"] == "HTTP_503"
+    assert calls == observer.FETCH_ATTEMPTS
     assert "secret" not in path.read_text()
+
+
+def test_refresh_retries_one_transient_fetch_then_recovers(tmp_path, monkeypatch):
+    calls = 0
+
+    def flaky(url, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise HTTPError(url, 503, "temporary", Message(), None)
+        return {"ok": True}
+
+    def collector(*args, fetcher, **kwargs):
+        fetcher("https://example.test/public", 1)
+        return sample()
+
+    monkeypatch.setattr(observer, "fetch_json", flaky)
+    monkeypatch.setattr(observer.time, "sleep", lambda _: None)
+    path = tmp_path / "state.json"
+    assert observer.refresh(path, collector=collector) == 0
+    assert calls == 2
+    assert observer.status(observer.load_state(path))["status"] == "ok"
 
 
 def test_success_resets_consecutive_refresh_failures(tmp_path):
@@ -427,6 +460,7 @@ def test_v3_upgrade_changes_only_atlas_ui_and_keeps_versioned_backup():
     script = (ROOT / "deploy/atlas/upgrade-v3.sh").read_text()
     assert "v2-to-v3" in script and "v3-to-v3.9" in script and "BACKUP=" in script
     assert "tools/atlas_dashboard.py" in script and "tools/atlas_observer.py" in script
+    assert "tools/technocore_atlas.py" in script
     assert "technocore-a2a-rnd-v5.service" in script
     assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
     assert "technocore-collab.service" not in script
@@ -437,9 +471,60 @@ def test_v3_upgrade_changes_only_atlas_ui_and_keeps_versioned_backup():
     assert "install -d -m 0755 /opt/technocore-atlas" in script
     assert "import tools.atlas_observer" in script
     assert "ATLAS_V3_CURRENT_RELEASE_ALREADY_INSTALLED" in script
+    assert '"$BACKUP/bin/tc-atlas"' in script
+    assert 'install -m 0755 "$SOURCE_ROOT/deploy/atlas/tc-atlas"' in script
 
 
 def test_observer_serve_uses_threaded_loopback_http_server():
     source = (ROOT / "tools/atlas_observer.py").read_text()
     assert 'ThreadingHTTPServer(("127.0.0.1", 8787)' in source
     assert "server.daemon_threads = True" in source
+
+
+def test_task_status_cli_reports_stage_and_evidence(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    curl = fake_bin / "curl"
+    curl.write_text(
+        "#!/bin/sh\n"
+        'printf \'%s\\n\' \'{"snapshot":{"workflows":[{"task_id":"wf-test-1",'
+        '"status":"complete","current_stage":"COMPLETE","conflicts":0,'
+        '"evidence_algorithm":"sha256-merkle-v1","evidence_root":"abc123",'
+        '"evidence":[{}],"stages":[{"kind":"COMPLETE","agent":"Love8",'
+        '"text_sha256":"0123456789abcdef9999"}]}]}}\'\n'
+    )
+    curl.chmod(0o755)
+    env = os.environ | {"PATH": f"{fake_bin}:/usr/bin:/bin"}
+    result = subprocess.run(
+        ["bash", str(ROOT / "deploy/atlas/tc-atlas"), "task", "wf-test-1"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "status=complete" in result.stdout
+    assert "evidence_root=abc123" in result.stdout
+    assert "stage_1=COMPLETE agent=Love8 hash=0123456789abcdef" in result.stdout
+
+
+def test_offline_demo_generates_reproducible_evidence_artifacts(tmp_path):
+    output = tmp_path / "demo"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/verify_atlas_demo.py"),
+            "--output-dir",
+            str(output),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    evidence = json.loads((output / "evidence.json").read_text())
+    assert evidence["leaf_count"] == 5
+    assert evidence["algorithm"] == "sha256-merkle-v1"
+    assert evidence["root"] == "daa8db6b53cb3e13f984683a95b625c95654d1fb8a845e49ce627d5cb559ce01"
+    assert (output / "snapshot.json").is_file()
+    assert (output / "observer-state.json").is_file()
+    assert "private_keys_read=0" in (output / "demo.log").read_text()

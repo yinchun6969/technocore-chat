@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 from tools.technocore_atlas import (
+    EVIDENCE_ALGORITHM,
     WORKFLOW_SIGNERS,
     _a2a_metadata,
     _load_local_events,
     collect_snapshot,
+    evidence_merkle_root,
     render_svg,
     snapshot_from_dict,
 )
@@ -101,11 +104,31 @@ def test_collects_verified_five_stage_workflow_with_allowlisted_content() -> Non
         "Aizong",
         "Love8",
     ]
+    assert len(workflow.evidence) == 5
+    assert workflow.evidence_algorithm == EVIDENCE_ALGORITHM
+    assert len(workflow.evidence_root) == 64
+    assert [item.stage for item in workflow.evidence] == list(contents)
+    assert all(item.source_type == "technocore_signed_stage" for item in workflow.evidence)
+    assert all(item.signer_did == WORKFLOW_SIGNERS[item.stage] for item in workflow.evidence)
+    assert (
+        snapshot_from_dict(snapshot.to_dict()).workflows[0].evidence_root == workflow.evidence_root
+    )
     exported = json.dumps(snapshot.to_dict(), ensure_ascii=False)
     assert "Builder 初步分析" in exported
     assert "unknown_private_field" not in exported
     assert "must not be exported" not in exported
     assert "mb-p-" not in exported
+
+
+def test_evidence_merkle_root_is_deterministic_ordered_and_tamper_evident() -> None:
+    leaves = tuple(hashlib.sha256(value).hexdigest() for value in (b"one", b"two", b"three"))
+    root = evidence_merkle_root(leaves)
+    assert len(root) == 64
+    assert evidence_merkle_root(leaves) == root
+    assert evidence_merkle_root(tuple(reversed(leaves))) != root
+    changed = (*leaves[:2], hashlib.sha256(b"changed").hexdigest())
+    assert evidence_merkle_root(changed) != root
+    assert evidence_merkle_root(()) == ""
 
 
 def test_workflow_rejects_wrong_signer_and_redacts_credentials() -> None:
