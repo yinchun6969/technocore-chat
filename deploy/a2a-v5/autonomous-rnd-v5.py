@@ -30,6 +30,7 @@ LOG_FILE = STATE / "director.log"
 LOCK_FILE = STATE / "director.lock"
 MANUAL_QUEUE = STATE / "manual-requests.jsonl"
 ROOM_NONCES = STATE / "discussion-nonces.json"
+CURATOR_STAGE_CACHE = STATE / "curator-stage-cache.json"
 
 spec = importlib.util.spec_from_file_location("existing_a2a_agent", RUNTIME)
 if spec is None or spec.loader is None:
@@ -530,6 +531,44 @@ def workflow_snapshot() -> tuple[dict[str, dict], bool]:
             old = bucket.get(obj["type"])
             if old is None or seq > old["seq"]:
                 bucket[obj["type"]] = {"seq": seq, "from": message.get("from"), "obj": obj, "room": room}
+    # Curator v5.2 maintains an atomic sender-checked cache with per-room
+    # cursors. Reuse it as a supplemental observation source so the Director
+    # and Telegram view do not forget a stage after a transient tail-read
+    # failure. Every cached envelope is independently revalidated here.
+    try:
+        cached = json.loads(CURATOR_STAGE_CACHE.read_text(encoding="utf-8"))
+        cached_workflows = cached.get("workflows", {}) if isinstance(cached, dict) else {}
+    except (OSError, ValueError, TypeError):
+        cached_workflows = {}
+    cached_items = cached_workflows.items() if isinstance(cached_workflows, dict) else []
+    for task_id, stages in cached_items:
+        if not str(task_id).startswith("wf-") or not isinstance(stages, dict):
+            continue
+        for stage, item in stages.items():
+            if stage not in expected or not isinstance(item, dict):
+                continue
+            obj = item.get("obj", {})
+            sender = item.get("from")
+            if not isinstance(obj, dict) or obj.get("type") != stage or sender != expected[stage]:
+                continue
+            if clean(obj.get("task_id"), 120) != task_id:
+                continue
+            bucket = workflows.setdefault(task_id, {})
+            current = bucket.get(stage)
+            cached_key = (
+                float(item.get("message_ts", 0) or 0), str(item.get("room", "")),
+                int(item.get("seq", 0) or 0),
+            )
+            current_key = (
+                float(current.get("message_ts", 0) or 0), str(current.get("room", "")),
+                int(current.get("seq", 0) or 0),
+            ) if isinstance(current, dict) else (-1.0, "", -1)
+            if current is None or cached_key > current_key:
+                bucket[stage] = {
+                    "seq": int(item.get("seq", 0) or 0), "from": sender,
+                    "obj": obj, "room": clean(item.get("room"), 120),
+                    "message_ts": float(item.get("message_ts", 0) or 0),
+                }
     active = []
     for task_id, stages in workflows.items():
         if "WORKFLOW_TASK" in stages and "COMPLETE" not in stages:
@@ -1191,4 +1230,3 @@ if __name__ == "__main__":
         reset_active()
     else:
         raise SystemExit("usage: autonomous-rnd-v5.py run|tick|status|pause|resume|reset-active")
-
