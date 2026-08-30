@@ -27,6 +27,79 @@ The resulting loop is:
 
 `evidence -> objective -> signed request -> Builder analysis -> Reviewer challenge -> revision -> final assessment -> cross-validation artifact`
 
+## Current review release v5.5
+
+v5.5 hardens the evidence audit boundary without replacing the proven v5.4
+three-node transport. Love8 and Aizong keep producing the same signed stages;
+the AI2AI Reviewer/Curator now converts the five authenticated room stages into
+strict, deterministic evidence records:
+
+```text
+schema + workflow_id + stage + source_type + payload_sha256
++ timestamp + signer_did + {room, sequence}
+```
+
+The records are ordered by protocol stage and committed to a domain-separated
+SHA-256 Merkle tree. Artifact creation is blocked unless all five expected
+signers, workflow bindings, locators, payload hashes, leaf hashes and the
+Merkle root verify. The artifact receipt contains the complete evidence bundle
+and publishes `evidence_merkle_root` in the signed receipt.
+
+v5.5 also adds:
+
+- deterministic, standard-library schema validation (no mutable VPS package
+  dependency);
+- replay rejection for duplicate signer/room/sequence locators;
+- per-workflow Saga checkpoints from `TASK_SIGNED` through
+  `ARTIFACT_VERIFIED`, including `task_id`, nonce, timestamp and evidence hash;
+- fail-closed room cursor gap detection and Unix/ISO timestamp normalization;
+- JSON structured failure context and a read-only task status CLI;
+- unit, integration, tamper, replay, gap, rollback and offline E2E coverage.
+
+The Saga is an evidence/recovery checkpoint, not authority to execute code or
+rewind live mailbox state. Merkle verification proves that the recorded signed
+stage set is internally consistent; it does not prove that an external research
+claim is true.
+
+Run the same wrapper on Love8, Aizong and AI2AI, in that order. The default mode
+is check-only:
+
+```bash
+bash deploy/a2a-v5/install-a2a-suite-v5.5.sh --check
+bash deploy/a2a-v5/install-a2a-suite-v5.5.sh --apply
+```
+
+After a workflow is observed, inspect its exact recovery point and Merkle root
+on AI2AI:
+
+```bash
+technocore status --task-id wf-...
+# Always available even if an unrelated `technocore` executable already exists:
+tc-a2a-task-status status --task-id wf-...
+```
+
+### Reproduce the evidence demo offline
+
+This command performs no network, model, credential, deployment or server
+write. It creates a local artifact, evidence bundle, receipt and JSONL Saga log:
+
+```bash
+python3 deploy/a2a-v5/demo_v55.py --output /tmp/technocore-a2a-v55-demo
+cat /tmp/technocore-a2a-v55-demo/receipt.json
+```
+
+The demo prints the same deterministic Merkle root on every machine for the
+same canonical input. GitHub Actions reruns the demo and verifies its output.
+
+### Scope decisions
+
+The v5.5 release adopts the evidence schema/Merkle gate, recovery checkpoints,
+structured diagnostics, task CLI, tests and exact reproduction guide. Pydantic
+is deliberately not added because the deployed nodes currently need a
+zero-dependency verifier. Video subtitles, visible hashes/DIDs and a final repo
+link are recommended for the submission recording, but remain presentation
+work and do not gate the runtime release.
+
 ## Unified v5.3 upgrade
 
 > v5.3 remains documented for audit history. New and existing installations
@@ -57,7 +130,7 @@ branch, commit, and CI result when the corresponding trusted local event is
 recorded. v5.3 still does not grant an agent permission to write GitHub or open
 a PR automatically; publication remains human-approved.
 
-## Final review release v5.4
+## Final review release v5.4 (audit history)
 
 Live verification after v5.3 exposed one remaining evidence-availability gap:
 the three-agent workflow could reach `COMPLETE` while a transient or high-volume
@@ -169,6 +242,9 @@ The record documents a completed three-agent run with scheduler request
 - A completed workflow proves orchestration, signed message exchange, and
   evidence recording. It does not by itself prove that every research finding
   is correct or that a production bug has been fixed.
+- A v5.5 Merkle root commits the selected five signed protocol stages. It is
+  not a blockchain timestamp, external-source attestation, or proof that every
+  statement inside a stage is factually correct.
 - Promotion of a finding, code change, PR, or server change remains manual.
 
 ## Deployment
@@ -214,6 +290,8 @@ tc-a2a-rnd-v5-resume
 tc-a2a-rnd-v5-reset
 tc-a2a-rnd-v5-artifacts
 tc-a2a-rnd-v5-room
+technocore status --task-id wf-...
+tc-a2a-task-status status --task-id wf-...
 journalctl -u technocore-a2a-rnd-v5 -n 80 --no-pager
 ```
 
