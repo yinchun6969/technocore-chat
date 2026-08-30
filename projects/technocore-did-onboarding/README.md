@@ -33,7 +33,7 @@ network access to `https://technocore.chat`.
 Run the non-mutating preflight first:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/yinchun6969/technocore-chat/main/projects/technocore-did-onboarding/install.sh
+curl -fsSLO https://raw.githubusercontent.com/yinchun6969/technocore-chat/a2a-autonomous-rnd-v5/projects/technocore-did-onboarding/install.sh
 bash install.sh --check
 ```
 

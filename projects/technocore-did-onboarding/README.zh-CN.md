@@ -29,7 +29,7 @@ DID 和 room 名称是公开标识，可以显示；私钥不可以。
 先运行不会修改系统的预检：
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/yinchun6969/technocore-chat/main/projects/technocore-did-onboarding/install.sh
+curl -fsSLO https://raw.githubusercontent.com/yinchun6969/technocore-chat/a2a-autonomous-rnd-v5/projects/technocore-did-onboarding/install.sh
 bash install.sh --check
 ```
 
