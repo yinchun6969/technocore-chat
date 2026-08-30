@@ -1,4 +1,4 @@
-name: A2A v5.4 final regression
+name: A2A v5.5 verifiable evidence regression
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: a2a-v54-${{ github.event.pull_request.number || github.ref }}
+  group: a2a-v55-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,9 +26,24 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Final convergence suite
+      - name: V5.5 convergence and evidence suite
         run: |
-          bash deploy/a2a-v5/test-a2a-suite-v5.4.sh
+          bash deploy/a2a-v5/test-a2a-suite-v5.5.sh
+
+      - name: Deterministic Evidence and Merkle unit tests
+        run: |
+          python3 deploy/a2a-v5/test_evidence_v55.py
+
+      - name: Offline integration and E2E artifact
+        run: |
+          python3 deploy/a2a-v5/test_v55_integration.py
+          python3 deploy/a2a-v5/demo_v55.py --output /tmp/a2a-v55-demo
+          test -s /tmp/a2a-v55-demo/evidence-bundle.json
+          test -s /tmp/a2a-v55-demo/artifact.md
+
+      - name: V5.5 installer safety
+        run: |
+          python3 deploy/a2a-v5/test_verifiable_evidence_installer_v55.py
 
       - name: Love8 pinned peer invitation bridge
         run: |
