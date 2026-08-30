@@ -174,8 +174,10 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     assert 'fetch("/atlas.json"' in body
     assert "setInterval(refresh,10000)" in body
     assert '<canvas id="world"' in body
-    assert 'class="brand-mark"' in body
-    assert "Atlas v3.4" in body
+    assert '<svg class="brand-mark" viewBox="0 0 100 132"' in body
+    assert 'class="logo-white"' in body and 'class="logo-cut"' in body
+    assert 'class="logo-cyan"' in body and '#14bee1' in body
+    assert "technocore" in body and "Atlas v3.5" in body
     assert 'navy="#081631",cyan="#20e2f2",white="#f7f8ff"' in body
     assert 'px(x+5,fy,58,34,"#ff5b5b")' not in body
     assert "const STEP_MS=7600,MOVE_END=.36,WORK_END=.76" in body
@@ -381,7 +383,7 @@ def test_v2_upgrade_is_atlas_only_and_keeps_automatic_backup():
 
 def test_v3_upgrade_changes_only_atlas_ui_and_keeps_versioned_backup():
     script = (ROOT / "deploy/atlas/upgrade-v3.sh").read_text()
-    assert "v2-to-v3" in script and "v3-to-v3.4" in script and "BACKUP=" in script
+    assert "v2-to-v3" in script and "v3-to-v3.5" in script and "BACKUP=" in script
     assert "tools/atlas_dashboard.py" in script and "tools/atlas_observer.py" in script
     assert "technocore-a2a-rnd-v5.service" in script
     assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
