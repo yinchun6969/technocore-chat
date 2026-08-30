@@ -43,7 +43,7 @@ fi
 if grep -q 'TECHNOCORE // PIXEL QUEST' /opt/technocore-atlas/tools/atlas_dashboard.py; then
   PREVIOUS_RELEASE='Atlas v3'
   ROLLBACK_MARKER='TECHNOCORE // PIXEL QUEST'
-  BACKUP_KIND='v3-to-v3.3'
+  BACKUP_KIND='v3-to-v3.4'
 elif grep -q 'Atlas v2 workflow dashboard' /opt/technocore-atlas/tools/atlas_dashboard.py; then
   PREVIOUS_RELEASE='Atlas v2'
   ROLLBACK_MARKER='TECHNOCORE // ATLAS v2'
@@ -93,5 +93,5 @@ systemctl is-active --quiet technocore-atlas-web.service
 systemctl is-active --quiet technocore-atlas-refresh.timer
 wait_for_dashboard 'TECHNOCORE // PIXEL QUEST'
 trap - ERR
-echo 'ATLAS_V3_3_UPGRADED: bilingual Technocore relay dashboard=127.0.0.1:8787; live polling=10s; collection=30s'
+echo 'ATLAS_V3_4_UPGRADED: bilingual focus-mode relay dashboard=127.0.0.1:8787; live polling=10s; collection=30s'
 echo "backup=$BACKUP; snapshot schema=v2; A2A/TG not restarted"
