@@ -86,11 +86,16 @@ def save_state(value: dict) -> None:
     os.replace(temporary, STATE_FILE)
 
 
-def load_cache() -> dict[str, dict]:
+def load_cache_document() -> dict:
     try:
         loaded = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
-        return {}
+        return {"workflows": {}, "room_cursors": {}}
+    return loaded if isinstance(loaded, dict) else {"workflows": {}, "room_cursors": {}}
+
+
+def load_cache() -> dict[str, dict]:
+    loaded = load_cache_document()
     workflows = loaded.get("workflows", {}) if isinstance(loaded, dict) else {}
     if not isinstance(workflows, dict):
         return {}
@@ -100,7 +105,22 @@ def load_cache() -> dict[str, dict]:
     }
 
 
-def save_cache(workflows: dict[str, dict]) -> None:
+def load_room_cursors() -> dict[str, int]:
+    values = load_cache_document().get("room_cursors", {})
+    if not isinstance(values, dict):
+        return {}
+    result: dict[str, int] = {}
+    for room, value in values.items():
+        try:
+            cursor = int(value)
+        except (TypeError, ValueError):
+            continue
+        if room and cursor >= 0:
+            result[str(room)] = cursor
+    return result
+
+
+def save_cache(workflows: dict[str, dict], room_cursors: dict[str, int] | None = None) -> None:
     STATE.mkdir(parents=True, exist_ok=True)
     ranked = sorted(
         workflows.items(),
@@ -110,7 +130,12 @@ def save_cache(workflows: dict[str, dict]) -> None:
         ),
         reverse=True,
     )[:CACHE_MAX_WORKFLOWS]
-    value = {"version": "5.1", "workflows": dict(ranked), "updated_at": int(time.time())}
+    value = {
+        "version": "5.2",
+        "workflows": dict(ranked),
+        "room_cursors": room_cursors if room_cursors is not None else load_room_cursors(),
+        "updated_at": int(time.time()),
+    }
     temporary = CACHE_FILE.with_suffix(".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, CACHE_FILE)
@@ -130,17 +155,22 @@ def parse(message: dict) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def room_messages(room: str) -> list[dict]:
+def room_messages(room: str, since: int | None = None) -> dict:
     last_error: Exception | None = None
     for attempt in range(ROOM_RETRIES):
         try:
+            params: dict[str, object] = {"format": "json", "limit": ROOM_LIMIT}
+            if since is not None:
+                params["since"] = since
             response = requests.get(
-                f"{BASE}/r/{quote(room)}", params={"format": "json", "limit": ROOM_LIMIT},
+                f"{BASE}/r/{quote(room)}", params=params,
                 timeout=25, headers={"User-Agent": "technocore-a2a-rnd-v5-curator/1.1"},
             )
             response.raise_for_status()
             body = response.json()
-            return body.get("messages", []) if isinstance(body, dict) else []
+            if not isinstance(body, dict) or not isinstance(body.get("messages", []), list):
+                raise ValueError("invalid room JSON")
+            return body
         except Exception as exc:
             last_error = exc
             if attempt + 1 < ROOM_RETRIES:
@@ -163,13 +193,15 @@ def scan() -> dict[str, dict]:
     # sender-checked stages across polling rounds so intermittent 503s in one
     # room cannot erase evidence collected from another room in a prior round.
     workflows: dict[str, dict] = load_cache()
+    room_cursors = load_room_cursors()
     observed_at = time.time()
     for room in rooms():
         try:
-            messages = room_messages(room)
+            body = room_messages(room, room_cursors.get(room))
         except Exception as exc:
             log("room_read_error", room=room, error=clean(exc, 180))
             continue
+        messages = body.get("messages", [])
         for message in messages:
             obj = parse(message)
             if not obj or obj.get("type") not in EXPECTED:
@@ -180,13 +212,29 @@ def scan() -> dict[str, dict]:
             if not task_id.startswith("wf-"):
                 continue
             seq = int(message.get("seq", 0) or 0)
+            try:
+                message_ts = float(message.get("ts", 0) or 0)
+            except (TypeError, ValueError):
+                message_ts = 0
             old = workflows.setdefault(task_id, {}).get(obj["type"])
-            if old is None or seq > int(old.get("seq", 0) or 0):
+            old_key = (
+                float(old.get("message_ts", 0) or 0), str(old.get("room", "")),
+                int(old.get("seq", 0) or 0),
+            ) if isinstance(old, dict) else (-1.0, "", -1)
+            new_key = (message_ts, room, seq)
+            if old is None or new_key > old_key:
                 workflows[task_id][obj["type"]] = {
                     "seq": seq, "from": message.get("from"), "room": room,
-                    "obj": obj, "seen_at": observed_at,
+                    "obj": obj, "message_ts": message_ts, "seen_at": observed_at,
                 }
-    save_cache(workflows)
+        try:
+            last_seq = int(body.get("last_seq", room_cursors.get(room, 0)) or 0)
+        except (TypeError, ValueError):
+            last_seq = room_cursors.get(room, 0)
+        room_cursors[room] = max(room_cursors.get(room, 0), last_seq)
+    # Workflow stages and room cursors share one atomic checkpoint. A failed
+    # room is never advanced, so its unseen messages remain eligible next poll.
+    save_cache(workflows, room_cursors)
     return workflows
 
 

@@ -29,6 +29,9 @@ The resulting loop is:
 
 ## Unified v5.3 upgrade
 
+> v5.3 remains documented for audit history. New and existing installations
+> should converge on the v5.4 final review release below.
+
 The v5.3 role-aware wrapper consolidates the fixes that were previously
 installed separately. It detects `love8`, `aizong`, or `ai2ai`, verifies every
 download against an immutable commit and SHA-256 digest, and then applies only
@@ -53,6 +56,42 @@ PR notifications are event-driven. They report a PR candidate, created PR URL,
 branch, commit, and CI result when the corresponding trusted local event is
 recorded. v5.3 still does not grant an agent permission to write GitHub or open
 a PR automatically; publication remains human-approved.
+
+## Final review release v5.4
+
+Live verification after v5.3 exposed one remaining evidence-availability gap:
+the three-agent workflow could reach `COMPLETE` while a transient or high-volume
+AI2AI room caused the single `BUILD_RESULT` copy to leave the latest-200 read
+window before the Curator observed it. v5.4 closes both sides of that gap:
+
+- the Curator stores a per-room `since` cursor atomically with its verified
+  stage cache and never advances a failed room;
+- Aizong mirrors its signed `BUILD_RESULT` to Love8 and its signed
+  `REVISED_RESULT` to AI2AI after the primary delivery succeeds;
+- the Director revalidates and reuses the Curator cache for status and Telegram
+  stage notifications;
+- the AI2AI Curator polls every 30 seconds;
+- the discussion ledger uses `discussion_event`, avoiding a duplicate `event`
+  argument on older live installations after convergence;
+- rollback restores code and services without deleting live Director state,
+  Curator cache, or generated artifacts;
+- every downloaded component is pinned to an immutable commit and SHA-256.
+
+The default mode performs checks only. Apply in order: Love8, Aizong, AI2AI.
+
+```bash
+curl -fL --retry 5 --retry-delay 2 \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/a2a-autonomous-rnd-v5/deploy/a2a-v5/install-a2a-suite-v5.4.sh \
+  -o /root/install-a2a-suite-v5.4.sh
+bash -n /root/install-a2a-suite-v5.4.sh
+bash /root/install-a2a-suite-v5.4.sh --check
+bash /root/install-a2a-suite-v5.4.sh --apply
+```
+
+This release preserves DIDs, private keys, mailboxes, peer maps, room nonces,
+cursors, provenance, Telegram credentials and offsets, workflow history,
+Curator state, stage cache, and existing artifacts. Evidence mirrors are
+best-effort and never gate the primary workflow.
 
 ### Curator reliability repair v5.1
 
