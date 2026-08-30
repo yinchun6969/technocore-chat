@@ -139,6 +139,23 @@ class V551RecoveryTests(unittest.TestCase):
         self.assertIn("最新已验证研究简报", patched)
         self.assertNotIn('files = sorted(ARTIFACTS.glob("*.md")', patched)
 
+    def test_verified_brief_patch_supports_known_unmarked_controller(self):
+        patcher = load(HERE / "patch-verified-brief-v5.5.1.py", "verified_brief_unmarked_test")
+        source = (HERE / "telegram-control-v1.py").read_text(encoding="utf-8")
+        self.assertNotIn("# RESEARCH_CONTEXT_V32", source)
+        patched = patcher.patch(source)
+        tree = __import__("ast").parse(patched)
+        brief = next(node for node in tree.body if isinstance(node, __import__("ast").FunctionDef) and node.name == "brief")
+        brief_source = __import__("ast").get_source_segment(patched, brief)
+        self.assertIn('ARTIFACTS.glob("*.json")', patched)
+        self.assertNotIn("research_context", brief_source)
+        self.assertIn("v5.5.2", brief_source)
+
+    def test_verified_brief_patch_rejects_unknown_layout(self):
+        patcher = load(HERE / "patch-verified-brief-v5.5.1.py", "verified_brief_unknown_test")
+        with self.assertRaisesRegex(ValueError, "unsupported Telegram controller layout"):
+            patcher.patch("def brief():\n    return 'unsafe'\n")
+
 
 if __name__ == "__main__":
     unittest.main()

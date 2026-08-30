@@ -1,4 +1,4 @@
-name: A2A v5.5.1 resilient evidence regression
+name: A2A v5.5.2 resilient evidence regression
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: a2a-v551-${{ github.event.pull_request.number || github.ref }}
+  group: a2a-v552-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -46,7 +46,9 @@ jobs:
         run: |
           python3 deploy/a2a-v5/test_verifiable_evidence_installer_v55.py
           python3 deploy/a2a-v5/test_verifiable_evidence_installer_v551.py
+          python3 deploy/a2a-v5/test_verifiable_evidence_installer_v552.py
           bash -n deploy/a2a-v5/install-verifiable-evidence-v5.5.1.sh
+          bash -n deploy/a2a-v5/install-verifiable-evidence-v5.5.2.sh
 
       - name: Love8 pinned peer invitation bridge
         run: |

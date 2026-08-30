@@ -27,7 +27,29 @@ The resulting loop is:
 
 `evidence -> objective -> signed request -> Builder analysis -> Reviewer challenge -> revision -> final assessment -> cross-validation artifact`
 
-## Current recovery release v5.5.1
+## Current compatibility recovery release v5.5.2
+
+v5.5.2 keeps all v5.5.1 recovery and verification behavior, but safely accepts
+both known AI2AI Telegram controller layouts: the research-context v3.2 layout
+with its marker and the earlier unmarked controller layout. Compatibility is
+decided by parsing the source and requiring the exact controller functions and
+path constants; unknown layouts still fail closed before any installed file or
+service is changed.
+
+The installer is also transactional after backup. Any failure while installing
+the Curator/status code, patching Telegram, writing the CLI/rollback command, or
+restarting either service restores every managed file and the prior service
+state. Live identity, keys, mailbox, cursors, nonces, cache, retries,
+provenance, and artifacts are outside the restore set.
+
+Run only on AI2AI:
+
+```bash
+bash deploy/a2a-v5/install-verifiable-evidence-v5.5.2.sh --check
+bash deploy/a2a-v5/install-verifiable-evidence-v5.5.2.sh --apply
+```
+
+## Recovery base v5.5.1
 
 v5.5.1 is an AI2AI-only reliability patch for failures observed after the
 v5.5 rollout. It does not change the Love8 Director or Aizong Builder wire

@@ -65,7 +65,7 @@ def latest() -> tuple[Path | None, str]:
 '''
 
 
-BRIEF = r'''
+BRIEF_CONTEXT = r'''
 def brief() -> str:
     path, artifact = latest()
     if path is not None:
@@ -89,16 +89,42 @@ def brief() -> str:
 '''
 
 
+BRIEF_BASIC = r'''
+def brief() -> str:
+    path, artifact = latest()
+    if path is not None:
+        meta = read_json(path.with_suffix(".json"), {})
+        return (
+            f"最新已验证研究简报\nworkflow: {path.stem}\n"
+            f"cross_validation_score: {meta.get('cross_validation_score', 'unknown')}\n"
+            f"evidence_merkle_root: {meta.get('evidence_merkle_root', 'unknown')}\n\n"
+            + safe_text(artifact, 3200)
+        )
+    state = read_json(DIRECTOR_STATE, {})
+    active = state.get("active_request", {}) if isinstance(state, dict) else {}
+    goal = active.get("goal", "") if isinstance(active, dict) else ""
+    return "目前没有通过 v5.5.2 验证的研究档案。已记录目标：" + compact(goal, 700)
+'''
+
+
 def patch(source: str) -> str:
     if MARKER in source:
         ast.parse(source)
         return source
-    if "# RESEARCH_CONTEXT_V32" not in source:
-        raise ValueError("research context v3.2 marker missing; refusing a downgrade-prone patch")
+    tree = ast.parse(source)
+    functions = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+    required_functions = {"read_json", "safe_text", "compact", "status", "latest", "brief", "queue"}
+    required_layout = ("ROOT =", "ARTIFACTS =", "DIRECTOR_STATE =")
+    if not required_functions.issubset(functions) or not all(marker in source for marker in required_layout):
+        raise ValueError("unsupported Telegram controller layout; refusing a downgrade-prone patch")
+    has_research_context = (
+        "# RESEARCH_CONTEXT_V32" in source
+        and "import research_context_v32 as research_context" in source
+    )
     if "import importlib.util\n" not in source:
         source = source.replace("import hashlib\n", "import hashlib\nimport importlib.util\n", 1)
     source = replace_function(source, "latest", LATEST)
-    source = replace_function(source, "brief", BRIEF)
+    source = replace_function(source, "brief", BRIEF_CONTEXT if has_research_context else BRIEF_BASIC)
     source = source.replace("from __future__ import annotations\n", "from __future__ import annotations\n\n" + MARKER + "\n", 1)
     ast.parse(source)
     return source
