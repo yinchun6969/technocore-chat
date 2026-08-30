@@ -171,13 +171,13 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     body = dashboard_document(state, {"status": "ok"}).decode()
     assert '<meta name="viewport"' in body
     assert "TECHNOCORE // PIXEL QUEST" in body
-    assert 'fetch(`/atlas.json?v=38&t=${Date.now()}`' in body
+    assert 'fetch(`/atlas.json?v=39&t=${Date.now()}`' in body
     assert "setInterval(refresh,10000)" in body
     assert '<canvas id="world"' in body
     assert '<svg class="brand-mark" viewBox="0 0 100 132"' in body
     assert 'class="logo-white"' in body and 'class="logo-cut"' in body
     assert 'class="logo-cyan"' in body and '#14bee1' in body
-    assert "technocore" in body and "Atlas v3.8" in body
+    assert "technocore" in body and "Atlas v3.9" in body
     assert "A2A v5.4" in body
     assert 'navy="#081631",cyan="#20e2f2",white="#f7f8ff"' in body
     assert 'px(x+5,fy,58,34,"#ff5b5b")' not in body
@@ -207,12 +207,20 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     assert "watching:journey.active" in body
     assert "copy.teamMove(owner)" in body
     assert 'id="observation-status"' in body
+    assert 'id="upstream-status"' in body
     assert "updateObservation(data.observation)" in body
     assert "Last verified snapshot" in body
     assert 'badge.textContent="● LIVE"' in body
     assert 'html[lang="en"] .source-label' in body
     assert "function queueMusic()" in body and "function startMusic()" in body
-    assert "musicMaster.gain.setValueAtTime(.18" in body
+    assert "function brickCue(kind)" in body
+    assert "function handoffCue()" in body and "function victoryCue()" in body
+    assert "function cueJourney(journey,kind)" in body
+    assert "blip(" not in body
+    assert "createDynamicsCompressor()" in body
+    assert "sfxMaster.gain.setValueAtTime(.72" in body
+    assert "stageBump=i===idx?bump:0" in body
+    assert "flagProgress" in body
     assert "@media(min-width:900px)" in body
     assert "present.size/order.length" in body
     assert 'const bubbleCopy=lang==="en"?actions[kind]' in body
@@ -256,6 +264,7 @@ def test_failed_refresh_preserves_snapshot_and_hides_error_details(tmp_path):
     assert after["snapshot"] == before["snapshot"]
     assert after["last_success"] == before["last_success"]
     assert observer.status(after)["status"] == "degraded"
+    assert observer.status(after)["consecutive_failures"] == 1
     assert "hidden" not in path.read_text()
     assert path.stat().st_mode & 0o777 == 0o600
     assert not list(tmp_path.glob(".atlas-*"))
@@ -271,6 +280,19 @@ def test_refresh_exposes_only_sanitized_http_error_code(tmp_path, monkeypatch):
     state = observer.load_state(path)
     assert state["error_code"] == "HTTP_503"
     assert "secret" not in path.read_text()
+
+
+def test_success_resets_consecutive_refresh_failures(tmp_path):
+    path = tmp_path / "state.json"
+
+    def failure(*args, **kwargs):
+        raise OSError("temporary upstream failure")
+
+    assert observer.refresh(path, collector=failure) == 1
+    assert observer.refresh(path, collector=failure) == 1
+    assert observer.status(observer.load_state(path))["consecutive_failures"] == 2
+    assert observer.refresh(path, collector=lambda *a, **k: sample()) == 0
+    assert observer.status(observer.load_state(path))["consecutive_failures"] == 0
 
 
 def test_no_sample_is_substituted_on_first_failure(tmp_path):
@@ -403,7 +425,7 @@ def test_v2_upgrade_is_atlas_only_and_keeps_automatic_backup():
 
 def test_v3_upgrade_changes_only_atlas_ui_and_keeps_versioned_backup():
     script = (ROOT / "deploy/atlas/upgrade-v3.sh").read_text()
-    assert "v2-to-v3" in script and "v3-to-v3.8" in script and "BACKUP=" in script
+    assert "v2-to-v3" in script and "v3-to-v3.9" in script and "BACKUP=" in script
     assert "tools/atlas_dashboard.py" in script and "tools/atlas_observer.py" in script
     assert "technocore-a2a-rnd-v5.service" in script
     assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
@@ -415,3 +437,9 @@ def test_v3_upgrade_changes_only_atlas_ui_and_keeps_versioned_backup():
     assert "install -d -m 0755 /opt/technocore-atlas" in script
     assert "import tools.atlas_observer" in script
     assert "ATLAS_V3_CURRENT_RELEASE_ALREADY_INSTALLED" in script
+
+
+def test_observer_serve_uses_threaded_loopback_http_server():
+    source = (ROOT / "tools/atlas_observer.py").read_text()
+    assert 'ThreadingHTTPServer(("127.0.0.1", 8787)' in source
+    assert "server.daemon_threads = True" in source

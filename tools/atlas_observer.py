@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from html import escape
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, cast
 from urllib.error import HTTPError
@@ -107,6 +107,7 @@ def refresh(
             last_success_epoch=time.time(),
             last_attempt_ok=True,
             error_code=None,
+            consecutive_failures=0,
         )
         result = 0
     except (OSError, ValueError, TypeError, KeyError) as exc:
@@ -114,6 +115,7 @@ def refresh(
         state.update(
             last_attempt_ok=False,
             error_code=fetch_errors[0] if fetch_errors else type(exc).__name__,
+            consecutive_failures=min(9999, int(state.get("consecutive_failures", 0)) + 1),
         )
         result = 1
     save_state(path, state)
@@ -136,6 +138,7 @@ def status(state: dict[str, Any], *, now: float | None = None) -> dict[str, Any]
         "age_seconds": age,
         "stale": stale,
         "error_code": state.get("error_code"),
+        "consecutive_failures": max(0, int(state.get("consecutive_failures", 0))),
         "meaning": (
             "Observed signed stages only; not proof of agent uptime, identity or research quality."
         ),
@@ -252,7 +255,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         print(json.dumps(status(load_state(args.state)), indent=2))
         return 0
-    with HTTPServer(("127.0.0.1", 8787), make_handler(args.state)) as server:
+    with ThreadingHTTPServer(("127.0.0.1", 8787), make_handler(args.state)) as server:
+        server.daemon_threads = True
         server.serve_forever()
     return 0
 
