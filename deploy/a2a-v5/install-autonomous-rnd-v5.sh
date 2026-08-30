@@ -8,7 +8,7 @@ set -Eeuo pipefail
 VERSION="5.4.0"
 REPO_RAW="https://raw.githubusercontent.com/yinchun6969/technocore-chat"
 # Release tooling replaces this marker with an immutable reviewed commit.
-V5_REF="__RUNTIME_REF__"
+V5_REF="7f159d8c5129a30e801d8f8c121d4b369f1ee702"
 V5_RAW="$REPO_RAW/$V5_REF/deploy/a2a-v5"
 # This is the already-reviewed scheduler-gate patch.  Pinning a commit keeps
 # a later branch move from silently changing the gate used by this installer.
