@@ -78,10 +78,11 @@ class ScriptedRequests:
         return value
 
 
-def message(kind, sender, task_id="wf-cache-test", seq=1):
+def message(kind, sender, task_id="wf-cache-test", seq=1, ts=None):
     return {
         "seq": seq,
         "from": sender,
+        "ts": ts if ts is not None else 1788058800 + seq,
         "text": json.dumps({"type": kind, "task_id": task_id}),
     }
 
@@ -181,6 +182,34 @@ class CuratorReliabilityTests(unittest.TestCase):
         })
         module.scan()
         self.assertEqual(module.load_room_cursors()["d-ai2ai"], 17)
+
+    def test_sequence_gap_is_logged_and_cursor_does_not_advance(self):
+        module = self.load()
+        module.save_cache({}, {"d-ai2ai": 17})
+        module.requests = ScriptedRequests({
+            "d-ai2ai": [Response([message("CHALLENGE", AI2AI, seq=20)])],
+            "d-aizong": [Response([])],
+            "d-love8": [Response([])],
+        })
+        module.scan()
+        self.assertEqual(module.load_room_cursors()["d-ai2ai"], 17)
+        rows = [json.loads(line) for line in module.LOG_FILE.read_text().splitlines()]
+        self.assertEqual(rows[-1]["event"], "room_sequence_gap")
+        self.assertEqual((rows[-1]["missing_from"], rows[-1]["missing_to"]), (18, 19))
+
+    def test_iso_timestamps_select_the_newer_mirror(self):
+        module = self.load()
+        module.requests = ScriptedRequests({
+            "d-ai2ai": [Response([])],
+            "d-aizong": [Response([
+                message("BUILD_RESULT", AIZONG, seq=5, ts="2026-08-30T03:01:00Z"),
+                message("BUILD_RESULT", AIZONG, seq=4, ts="2026-08-30T03:02:00Z"),
+            ])],
+            "d-love8": [Response([])],
+        })
+        selected = module.scan()["wf-cache-test"]["BUILD_RESULT"]
+        self.assertEqual(selected["seq"], 4)
+        self.assertEqual(selected["message_ts"], 1788058920000)
 
 
 if __name__ == "__main__":
