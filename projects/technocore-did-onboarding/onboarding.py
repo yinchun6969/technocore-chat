@@ -82,8 +82,11 @@ def derive_did(key: Ed25519PrivateKey) -> str:
 
 def generate_key(path: Path) -> tuple[Ed25519PrivateKey, str]:
     candidate = path.expanduser()
+    did_path = candidate.with_name("did.txt")
     if candidate.exists() or candidate.is_symlink():
         raise FileExistsError(f"refusing to overwrite existing key path: {candidate}")
+    if did_path.exists() or did_path.is_symlink():
+        raise FileExistsError(f"refusing to overwrite existing DID path: {did_path}")
     candidate.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if os.name == "posix":
         candidate.parent.chmod(0o700)
@@ -103,7 +106,6 @@ def generate_key(path: Path) -> tuple[Ed25519PrivateKey, str]:
         candidate.unlink(missing_ok=True)
         raise
     did = derive_did(key)
-    did_path = candidate.with_name("did.txt")
     did_fd = os.open(did_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(did_fd, "w", encoding="utf-8") as handle:
         handle.write(did + "\n")
