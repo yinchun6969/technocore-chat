@@ -1,0 +1,10 @@
+[project]
+name = "technocore-did-onboarding"
+version = "1.0.0"
+description = "Local-first bilingual Technocore DID and owned-room onboarding wizard"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = ["cryptography==46.0.3"]
+
+[project.scripts]
+technocore-onboard = "onboarding:main"
