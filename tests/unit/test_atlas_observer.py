@@ -171,13 +171,13 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     body = dashboard_document(state, {"status": "ok"}).decode()
     assert '<meta name="viewport"' in body
     assert "TECHNOCORE // PIXEL QUEST" in body
-    assert 'fetch("/atlas.json"' in body
+    assert 'fetch(`/atlas.json?v=38&t=${Date.now()}`' in body
     assert "setInterval(refresh,10000)" in body
     assert '<canvas id="world"' in body
     assert '<svg class="brand-mark" viewBox="0 0 100 132"' in body
     assert 'class="logo-white"' in body and 'class="logo-cut"' in body
     assert 'class="logo-cyan"' in body and '#14bee1' in body
-    assert "technocore" in body and "Atlas v3.7" in body
+    assert "technocore" in body and "Atlas v3.8" in body
     assert "A2A v5.4" in body
     assert 'navy="#081631",cyan="#20e2f2",white="#f7f8ff"' in body
     assert 'px(x+5,fy,58,34,"#ff5b5b")' not in body
@@ -209,6 +209,11 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     assert 'id="observation-status"' in body
     assert "updateObservation(data.observation)" in body
     assert "Last verified snapshot" in body
+    assert 'badge.textContent="● LIVE"' in body
+    assert 'html[lang="en"] .source-label' in body
+    assert "function queueMusic()" in body and "function startMusic()" in body
+    assert "musicMaster.gain.setValueAtTime(.18" in body
+    assert "@media(min-width:900px)" in body
     assert "present.size/order.length" in body
     assert 'const bubbleCopy=lang==="en"?actions[kind]' in body
     assert "S.replayStart+=held" in body
@@ -398,7 +403,7 @@ def test_v2_upgrade_is_atlas_only_and_keeps_automatic_backup():
 
 def test_v3_upgrade_changes_only_atlas_ui_and_keeps_versioned_backup():
     script = (ROOT / "deploy/atlas/upgrade-v3.sh").read_text()
-    assert "v2-to-v3" in script and "v3-to-v3.7" in script and "BACKUP=" in script
+    assert "v2-to-v3" in script and "v3-to-v3.8" in script and "BACKUP=" in script
     assert "tools/atlas_dashboard.py" in script and "tools/atlas_observer.py" in script
     assert "technocore-a2a-rnd-v5.service" in script
     assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
