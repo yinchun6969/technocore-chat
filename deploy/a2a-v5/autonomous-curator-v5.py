@@ -30,6 +30,14 @@ spec.loader.exec_module(agent)
 if getattr(agent, "AGENT", "") != "ai2ai":
     raise SystemExit("curator must run on AGENT_NAME=ai2ai")
 
+evidence_spec = importlib.util.spec_from_file_location(
+    "technocore_evidence_v55", Path(__file__).resolve().with_name("evidence_v55.py")
+)
+if evidence_spec is None or evidence_spec.loader is None:
+    raise SystemExit("cannot load evidence_v55.py")
+evidence_v55 = importlib.util.module_from_spec(evidence_spec)
+evidence_spec.loader.exec_module(evidence_v55)
+
 requests = agent.requests
 BASE = getattr(agent, "BASE", "https://technocore.chat")
 LOVE8_DID = "did:key:z6MkfGtYxQg6e2u7aLBJVzowxgtgTmYzzXo227W9AvVQwq3p"
@@ -69,7 +77,7 @@ def ledger(event: str, **fields: object) -> None:
 
 
 def load_state() -> dict:
-    value = {"version": "5.0", "artifacts": {}, "last_error": ""}
+    value = {"version": "5.5", "artifacts": {}, "sagas": {}, "last_error": ""}
     try:
         loaded = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         if isinstance(loaded, dict):
@@ -131,7 +139,7 @@ def save_cache(workflows: dict[str, dict], room_cursors: dict[str, int] | None =
         reverse=True,
     )[:CACHE_MAX_WORKFLOWS]
     value = {
-        "version": "5.2",
+        "version": "5.5",
         "workflows": dict(ranked),
         "room_cursors": room_cursors if room_cursors is not None else load_room_cursors(),
         "updated_at": int(time.time()),
@@ -179,6 +187,35 @@ def room_messages(room: str, since: int | None = None) -> dict:
     raise last_error
 
 
+def sequence_gap(body: dict, since: int | None) -> tuple[int, int] | None:
+    """Return the missing inclusive sequence range without advancing a cursor."""
+    if since is None:
+        return None
+    messages = body.get("messages", [])
+    sequences = sorted({
+        int(row.get("seq", 0) or 0) for row in messages
+        if isinstance(row, dict) and str(row.get("seq", "")).isdigit()
+    })
+    try:
+        last_seq = int(body.get("last_seq", since) or since)
+    except (TypeError, ValueError):
+        last_seq = since
+    if last_seq <= since:
+        return None
+    if not sequences:
+        return since + 1, last_seq
+    expected = since + 1
+    for sequence in sequences:
+        if sequence < expected:
+            continue
+        if sequence > expected:
+            return expected, sequence - 1
+        expected += 1
+    if expected <= last_seq:
+        return expected, last_seq
+    return None
+
+
 def rooms() -> list[str]:
     values = [RECEIPT_ROOM, "d-aizong"]
     try:
@@ -212,10 +249,7 @@ def scan() -> dict[str, dict]:
             if not task_id.startswith("wf-"):
                 continue
             seq = int(message.get("seq", 0) or 0)
-            try:
-                message_ts = float(message.get("ts", 0) or 0)
-            except (TypeError, ValueError):
-                message_ts = 0
+            message_ts = evidence_v55.parse_timestamp(message.get("ts")) or evidence_v55.parse_timestamp(observed_at)
             old = workflows.setdefault(task_id, {}).get(obj["type"])
             old_key = (
                 float(old.get("message_ts", 0) or 0), str(old.get("room", "")),
@@ -227,6 +261,13 @@ def scan() -> dict[str, dict]:
                     "seq": seq, "from": message.get("from"), "room": room,
                     "obj": obj, "message_ts": message_ts, "seen_at": observed_at,
                 }
+        gap = sequence_gap(body, room_cursors.get(room))
+        if gap:
+            log(
+                "room_sequence_gap", room=room, cursor=room_cursors.get(room, 0),
+                missing_from=gap[0], missing_to=gap[1], decision="cursor_not_advanced",
+            )
+            continue
         try:
             last_seq = int(body.get("last_seq", room_cursors.get(room, 0)) or 0)
         except (TypeError, ValueError):
@@ -267,14 +308,16 @@ def cross_validation_score(stages: dict) -> int:
     return min(100, score)
 
 
-def artifact_prompt(task_id: str, stages: dict) -> str:
+def artifact_prompt(task_id: str, stages: dict, bundle: dict) -> str:
     return (
         "你是证据审计员。根据以下五个已验签阶段生成一份工程研究档案。绝不编造测试、"
         "执行结果或观察；把建议和已验证事实分开。必须明确列出至少两个独立来源的交叉对比，"
         "若证据不足要标记为未验证。严格使用这些 Markdown 标题：# Title, ## Objective, "
         "## Verified Evidence, ## Cross-Validation, ## Findings, ## Design Proposal, "
         "## Minimal Test Matrix, ## Open Questions, ## Provenance。不得包含凭据，不要求自动改动。\n\n"
-        f"WORKFLOW: {task_id}\nTASK:\n{field(stages, 'WORKFLOW_TASK', 'goal')}\n\n"
+        f"WORKFLOW: {task_id}\nEVIDENCE_SCHEMA: {bundle['schema']}\n"
+        f"EVIDENCE_MERKLE_ROOT: {bundle['merkle_root']}\n"
+        f"EVIDENCE_COUNT: {bundle['evidence_count']}\nTASK:\n{field(stages, 'WORKFLOW_TASK', 'goal')}\n\n"
         f"BUILDER:\n{field(stages, 'BUILD_RESULT', 'build_result')}\n\n"
         f"REVIEWER:\n{field(stages, 'CHALLENGE', 'challenge')}\n\n"
         f"REVISION:\n{field(stages, 'REVISED_RESULT', 'revised_result')}\n\n"
@@ -283,18 +326,22 @@ def artifact_prompt(task_id: str, stages: dict) -> str:
 
 
 def payload_hash(obj: dict) -> str:
-    return hashlib.sha256(json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+    return evidence_v55.payload_hash(obj)
 
 
-def receipt(task_id: str, text: str, score: int, stages: dict) -> dict:
+def receipt(task_id: str, text: str, score: int, stages: dict, bundle: dict) -> dict:
     stage_meta = {
         kind: {"from": item["from"], "room": item["room"], "seq": item["seq"], "payload_sha256": payload_hash(item["obj"])}
         for kind, item in stages.items()
     }
     return {
-        "version": "5.0", "workflow_id": task_id,
+        "version": "5.5", "workflow_id": task_id,
         "artifact_sha256": hashlib.sha256(text.encode()).hexdigest(),
         "cross_validation_score": score, "stage_count": len(stage_meta), "stages": stage_meta,
+        "evidence_verified": True,
+        "evidence_merkle_root": bundle["merkle_root"],
+        "evidence_bundle": bundle,
+        "saga": evidence_v55.saga_checkpoint(task_id, stages, artifact_verified=True),
         "created_at": int(time.time()),
         "policy": {"read_only": True, "auto_pr": False, "auto_server_change": False, "auto_social_post": False},
     }
@@ -307,6 +354,7 @@ def publish(task_id: str, value: dict) -> None:
         "ARTIFACT_RECEIPT", task_id,
         artifact_sha256=value["artifact_sha256"], quality_score=value["cross_validation_score"],
         stage_count=value["stage_count"], origin="ai2ai-rnd-v5", promotion="manual-review-required",
+        evidence_merkle_root=value["evidence_merkle_root"], evidence_schema=evidence_v55.SCHEMA,
     )
     peers = agent.peers()
     room = peers.get(AI2AI_DID) or RECEIPT_ROOM
@@ -320,19 +368,25 @@ def create(task_id: str, stages: dict) -> dict:
     json_path = ARTIFACTS / f"{task_id}.json"
     if md_path.exists() and json_path.exists():
         return json.loads(json_path.read_text(encoding="utf-8"))
+    bundle = evidence_v55.build_bundle(task_id, stages)
+    evidence_v55.verify_bundle(bundle)
     score = cross_validation_score(stages)
     if score < 80:
         raise RuntimeError(f"cross-validation evidence gate failed score={score}")
-    text = str(agent.ai_call(artifact_prompt(task_id, stages))).strip()
+    text = str(agent.ai_call(artifact_prompt(task_id, stages, bundle))).strip()
     required = ("Verified Evidence", "Cross-Validation", "Minimal Test Matrix", "Open Questions", "Provenance")
     if len(text) < 1200 or len(text) > 8000 or not all(item in text for item in required):
         raise RuntimeError("artifact format/length gate failed")
-    value = receipt(task_id, text, score, stages)
+    value = receipt(task_id, text, score, stages, bundle)
     md_path.write_text(text.rstrip() + "\n", encoding="utf-8")
     json_path.write_text(json.dumps(value, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
     os.chmod(md_path, 0o640)
     os.chmod(json_path, 0o640)
-    ledger("rnd_artifact_created", workflow_id=task_id, artifact_sha256=value["artifact_sha256"], score=score)
+    ledger(
+        "rnd_artifact_created", workflow_id=task_id,
+        artifact_sha256=value["artifact_sha256"], score=score,
+        evidence_hash=value["evidence_merkle_root"], evidence_verified=True,
+    )
     try:
         publish(task_id, value)
     except Exception as exc:
@@ -342,19 +396,41 @@ def create(task_id: str, stages: dict) -> dict:
 
 def tick() -> None:
     state = load_state()
-    for task_id, stages in sorted(scan().items()):
+    workflows = scan()
+    sagas = state.setdefault("sagas", {})
+    if not isinstance(sagas, dict):
+        sagas = {}
+        state["sagas"] = sagas
+    for task_id, stages in sorted(workflows.items()):
+        sagas[task_id] = evidence_v55.saga_checkpoint(
+            task_id, stages, artifact_verified=task_id in state.setdefault("artifacts", {}),
+        )
         if task_id in state.setdefault("artifacts", {}) or not complete(stages):
             continue
         try:
             value = create(task_id, stages)
             state["artifacts"][task_id] = {"sha256": value["artifact_sha256"], "score": value["cross_validation_score"], "created_at": value["created_at"]}
+            sagas[task_id] = value["saga"]
             state["last_error"] = ""
             save_state(state)
             log("artifact_ready", workflow_id=task_id, score=value["cross_validation_score"])
         except Exception as exc:
             state["last_error"] = clean(exc, 500)
-            ledger("rnd_artifact_rejected", workflow_id=task_id, error=state["last_error"])
-            log("artifact_rejected", workflow_id=task_id, error=state["last_error"])
+            evidence_hash = ""
+            try:
+                evidence_hash = evidence_v55.build_bundle(task_id, stages)["merkle_root"]
+            except Exception:
+                pass
+            ledger(
+                "rnd_artifact_rejected", workflow_id=task_id,
+                stage=sagas.get(task_id, {}).get("resume_from", "UNKNOWN"),
+                signer_did="", evidence_hash=evidence_hash, error=state["last_error"],
+            )
+            log(
+                "artifact_rejected", workflow_id=task_id,
+                stage=sagas.get(task_id, {}).get("resume_from", "UNKNOWN"),
+                signer_did="", evidence_hash=evidence_hash, error=state["last_error"],
+            )
     save_state(state)
 
 
