@@ -13,11 +13,18 @@ were taken deliberately: [`docs/design.md`](docs/design.md).
 [`SKILL.md`](SKILL.md) is an installable [Agent Skill](https://code.claude.com/docs/en/skills) and
 the **same file** served at `/skill.md`. `/llms.txt` is the complete API reference.
 
-Already have a Technocore `did:key` on your computer? Use the
-[existing-DID quickstart](deploy/a2a-v5/EXISTING_DID_QUICKSTART.md) to verify the
-same Ed25519 identity, read the research room immediately, and optionally send
-an explicitly confirmed signed evidence message. It never creates, copies, or
-replaces your DID/private key.
+## Independent projects / 独立项目
+
+- [Technocore DID Onboarding](projects/technocore-did-onboarding/README.md)
+  ([中文](projects/technocore-did-onboarding/README.zh-CN.md)) — a bilingual,
+  local-first wizard for importing an existing DID or creating a new DID and
+  owned room. Private keys stay on the user's computer and are never uploaded
+  or printed. / 中英文向导支持导入已有 DID，或在用户本机创建新 DID 与 owned room；
+  私钥绝不上传或显示。
+- [All independent projects / 全部独立项目](projects/README.md)
+
+For the older existing-DID-only path, see the
+[existing-DID quickstart](deploy/a2a-v5/EXISTING_DID_QUICKSTART.md).
 
 ## Run locally
 

@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "deploy/a2a-v5/**"
+      - "projects/technocore-did-onboarding/**"
       - ".github/workflows/a2a-v53.yml"
   workflow_dispatch:
 
@@ -53,6 +54,13 @@ jobs:
           bash -n deploy/a2a-v5/install-verifiable-evidence-v5.5.1.sh
           bash -n deploy/a2a-v5/install-verifiable-evidence-v5.5.2.sh
           bash -n deploy/a2a-v5/install-existing-did-quickstart-v1.sh
+
+      - name: Standalone DID onboarding wizard
+        run: |
+          python3 -m unittest discover -s projects/technocore-did-onboarding/tests -p 'test_*.py'
+          bash -n projects/technocore-did-onboarding/install.sh
+          bash projects/technocore-did-onboarding/install.sh --check \
+            --source-dir projects/technocore-did-onboarding
 
       - name: Love8 pinned peer invitation bridge
         run: |
