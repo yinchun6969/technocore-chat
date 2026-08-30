@@ -131,12 +131,9 @@ class V551RecoveryTests(unittest.TestCase):
 
     def test_verified_brief_patch_rejects_markdown_only_layout(self):
         patcher = load(HERE / "patch-verified-brief-v5.5.1.py", "verified_brief_patch_test")
+        context_patcher = load(HERE / "patch-research-context-v3.2.py", "research_context_patch_test")
         source = (HERE / "telegram-control-v1.py").read_text(encoding="utf-8")
-        source = source.replace(
-            "from __future__ import annotations\n",
-            "from __future__ import annotations\n\n# RESEARCH_CONTEXT_V32\n",
-            1,
-        )
+        source = context_patcher.patched_telegram(source)
         patched = patcher.patch(source)
         self.assertIn('ARTIFACTS.glob("*.json")', patched)
         self.assertIn("最新已验证研究简报", patched)
