@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -49,6 +50,10 @@ ROOM_LIMIT = min(200, max(50, int(os.environ.get("RND_V5_CURATOR_ROOM_LIMIT", "2
 ROOM_RETRIES = min(5, max(1, int(os.environ.get("RND_V5_CURATOR_ROOM_RETRIES", "3"))))
 CACHE_MAX_WORKFLOWS = max(20, int(os.environ.get("RND_V5_CURATOR_CACHE_WORKFLOWS", "120")))
 PUBLISH = os.environ.get("RND_V5_PUBLISH_RECEIPTS", "1") == "1"
+MAX_ARTIFACT_ATTEMPTS_PER_TICK = max(
+    1, min(3, int(os.environ.get("RND_V5_ARTIFACT_ATTEMPTS_PER_TICK", "1")))
+)
+RETRY_DELAYS = (120, 300, 900, 1800, 3600)
 EXPECTED = {
     "WORKFLOW_TASK": LOVE8_DID,
     "BUILD_RESULT": AIZONG_DID,
@@ -56,6 +61,20 @@ EXPECTED = {
     "REVISED_RESULT": AIZONG_DID,
     "COMPLETE": LOVE8_DID,
 }
+
+REQUIRED_ARTIFACT_HEADINGS = (
+    "# Title", "## Objective", "## Verified Evidence", "## Cross-Validation",
+    "## Findings", "## Design Proposal", "## Minimal Test Matrix",
+    "## Open Questions", "## Provenance",
+)
+
+
+class ArtifactGateError(RuntimeError):
+    """A model response exists but is not a valid workflow-bound artifact."""
+
+
+class ReceiptVerificationError(RuntimeError):
+    """A persisted receipt or artifact failed deterministic verification."""
 
 
 def clean(value: object, limit: int = 1200) -> str:
@@ -232,11 +251,17 @@ def scan() -> dict[str, dict]:
     workflows: dict[str, dict] = load_cache()
     room_cursors = load_room_cursors()
     observed_at = time.time()
+    failed_rooms: list[str] = []
     for room in rooms():
         try:
             body = room_messages(room, room_cursors.get(room))
         except Exception as exc:
-            log("room_read_error", room=room, error=clean(exc, 180))
+            error = clean(exc, 180)
+            failed_rooms.append(room)
+            log(
+                "room_read_error", room=room, error_type=classify_error(exc),
+                error=error, decision="cached_stages_preserved",
+            )
             continue
         messages = body.get("messages", [])
         for message in messages:
@@ -276,6 +301,12 @@ def scan() -> dict[str, dict]:
     # Workflow stages and room cursors share one atomic checkpoint. A failed
     # room is never advanced, so its unseen messages remain eligible next poll.
     save_cache(workflows, room_cursors)
+    cached_complete = sum(1 for stages in workflows.values() if complete(stages))
+    if failed_rooms and cached_complete:
+        log(
+            "cached_complete_workflows_available", failed_rooms=failed_rooms,
+            workflow_count=cached_complete, decision="artifact_generation_may_continue",
+        )
     return workflows
 
 
@@ -325,6 +356,72 @@ def artifact_prompt(task_id: str, stages: dict, bundle: dict) -> str:
     )[:11000]
 
 
+def artifact_repair_prompt(task_id: str, bundle: dict, rejected: str) -> str:
+    return (
+        "Repair the draft below without adding facts. Return only Markdown between 1200 and 8000 characters. "
+        "The output must contain each exact heading once and in this order: "
+        + ", ".join(REQUIRED_ARTIFACT_HEADINGS)
+        + ". It must literally include the workflow ID and evidence Merkle root shown below. "
+        "Clearly label unverified claims and never claim commands, writes, deployments, or tests that were not observed.\n\n"
+        f"WORKFLOW: {task_id}\nEVIDENCE_MERKLE_ROOT: {bundle['merkle_root']}\n\n"
+        "REJECTED_DRAFT:\n" + rejected[:8000]
+    )[:11000]
+
+
+def artifact_text_error(text: str, task_id: str, merkle_root: str) -> str:
+    if len(text) < 1200:
+        return f"artifact too short length={len(text)}"
+    if len(text) > 8000:
+        return f"artifact too long length={len(text)}"
+    missing = [heading for heading in REQUIRED_ARTIFACT_HEADINGS if heading not in text]
+    if missing:
+        return "artifact headings missing=" + ",".join(missing)
+    positions = [text.index(heading) for heading in REQUIRED_ARTIFACT_HEADINGS]
+    if positions != sorted(positions):
+        return "artifact headings out of order"
+    if task_id not in text:
+        return "artifact workflow binding missing"
+    if merkle_root not in text:
+        return "artifact Merkle binding missing"
+    return ""
+
+
+def generate_artifact_text(task_id: str, stages: dict, bundle: dict) -> str:
+    first = str(agent.ai_call(artifact_prompt(task_id, stages, bundle))).strip()
+    first_error = artifact_text_error(first, task_id, bundle["merkle_root"])
+    if not first_error:
+        return first.rstrip() + "\n"
+    log(
+        "artifact_repair_requested", workflow_id=task_id, error_type="format_gate",
+        error=first_error, evidence_hash=bundle["merkle_root"],
+    )
+    repaired = str(agent.ai_call(artifact_repair_prompt(task_id, bundle, first))).strip()
+    repaired_error = artifact_text_error(repaired, task_id, bundle["merkle_root"])
+    if repaired_error:
+        raise ArtifactGateError(repaired_error)
+    return repaired.rstrip() + "\n"
+
+
+def classify_error(exc: object) -> str:
+    message = clean(exc, 500).lower()
+    if "503" in message or "service unavailable" in message:
+        return "room_503"
+    if "timed out" in message or "timeout" in message:
+        return "provider_timeout"
+    if isinstance(exc, ArtifactGateError) or ("artifact " in message and "gate" in message):
+        return "format_gate"
+    if isinstance(exc, ReceiptVerificationError):
+        return "receipt_verification"
+    if isinstance(exc, getattr(evidence_v55, "EvidenceError", ())):
+        return "evidence_gate"
+    return "runtime_error"
+
+
+def retry_delay(attempts: int, error_type: str) -> int:
+    base = RETRY_DELAYS[min(max(attempts, 1) - 1, len(RETRY_DELAYS) - 1)]
+    return min(base, 900) if error_type == "format_gate" else base
+
+
 def payload_hash(obj: dict) -> str:
     return evidence_v55.payload_hash(obj)
 
@@ -335,7 +432,7 @@ def receipt(task_id: str, text: str, score: int, stages: dict, bundle: dict) -> 
         for kind, item in stages.items()
     }
     return {
-        "version": "5.5", "workflow_id": task_id,
+        "version": "5.5.1", "workflow_id": task_id,
         "artifact_sha256": hashlib.sha256(text.encode()).hexdigest(),
         "cross_validation_score": score, "stage_count": len(stage_meta), "stages": stage_meta,
         "evidence_verified": True,
@@ -345,6 +442,68 @@ def receipt(task_id: str, text: str, score: int, stages: dict, bundle: dict) -> 
         "created_at": int(time.time()),
         "policy": {"read_only": True, "auto_pr": False, "auto_server_change": False, "auto_social_post": False},
     }
+
+
+def verify_receipt(task_id: str, stages: dict, value: dict, text: str) -> bool:
+    if not isinstance(value, dict):
+        raise ReceiptVerificationError("receipt is not an object")
+    if value.get("workflow_id") != task_id:
+        raise ReceiptVerificationError("receipt workflow binding mismatch")
+    if value.get("evidence_verified") is not True:
+        raise ReceiptVerificationError("receipt is not marked evidence_verified")
+    bundle = value.get("evidence_bundle")
+    try:
+        evidence_v55.verify_bundle(bundle)
+        current = evidence_v55.build_bundle(task_id, stages)
+    except Exception as exc:
+        raise ReceiptVerificationError(f"evidence bundle invalid: {clean(exc, 220)}") from exc
+    if bundle != current:
+        raise ReceiptVerificationError("receipt evidence does not match current signed stages")
+    if value.get("evidence_merkle_root") != current["merkle_root"]:
+        raise ReceiptVerificationError("receipt Merkle root mismatch")
+    if value.get("artifact_sha256") != hashlib.sha256(text.encode()).hexdigest():
+        raise ReceiptVerificationError("artifact SHA256 mismatch")
+    if artifact_text_error(text, task_id, current["merkle_root"]):
+        raise ReceiptVerificationError("persisted artifact format or binding invalid")
+    saga = value.get("saga", {})
+    if not isinstance(saga, dict) or saga.get("task_id") != task_id or saga.get("state") != "ARTIFACT_VERIFIED":
+        raise ReceiptVerificationError("receipt Saga binding invalid")
+    return True
+
+
+def read_verified_receipt(task_id: str, stages: dict) -> dict:
+    md_path = ARTIFACTS / f"{task_id}.md"
+    json_path = ARTIFACTS / f"{task_id}.json"
+    if not md_path.is_file() or not json_path.is_file():
+        raise ReceiptVerificationError("verified artifact pair is incomplete")
+    try:
+        text = md_path.read_text(encoding="utf-8")
+        value = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        raise ReceiptVerificationError(f"artifact pair unreadable: {clean(exc, 180)}") from exc
+    verify_receipt(task_id, stages, value, text)
+    return value
+
+
+def preserve_replaced_artifacts(task_id: str, stamp: int) -> None:
+    for suffix in ("md", "json"):
+        path = ARTIFACTS / f"{task_id}.{suffix}"
+        if path.exists():
+            archive = ARTIFACTS / f"{task_id}.unverified-{stamp}.{suffix}"
+            if not archive.exists():
+                shutil.copy2(path, archive)
+
+
+def atomic_write(path: Path, text: str, mode: int = 0o640) -> None:
+    temporary = path.with_name(path.name + ".v551-new")
+    if temporary.exists() or temporary.is_symlink():
+        temporary.unlink()
+    with temporary.open("x", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temporary, mode)
+    os.replace(temporary, path)
 
 
 def publish(task_id: str, value: dict) -> None:
@@ -367,21 +526,25 @@ def create(task_id: str, stages: dict) -> dict:
     md_path = ARTIFACTS / f"{task_id}.md"
     json_path = ARTIFACTS / f"{task_id}.json"
     if md_path.exists() and json_path.exists():
-        return json.loads(json_path.read_text(encoding="utf-8"))
+        try:
+            return read_verified_receipt(task_id, stages)
+        except ReceiptVerificationError as exc:
+            log(
+                "artifact_pair_unverified", workflow_id=task_id,
+                error_type="receipt_verification", error=clean(exc, 500),
+                decision="preserve_then_replace_only_after_new_artifact_verifies",
+            )
     bundle = evidence_v55.build_bundle(task_id, stages)
     evidence_v55.verify_bundle(bundle)
     score = cross_validation_score(stages)
     if score < 80:
         raise RuntimeError(f"cross-validation evidence gate failed score={score}")
-    text = str(agent.ai_call(artifact_prompt(task_id, stages, bundle))).strip()
-    required = ("Verified Evidence", "Cross-Validation", "Minimal Test Matrix", "Open Questions", "Provenance")
-    if len(text) < 1200 or len(text) > 8000 or not all(item in text for item in required):
-        raise RuntimeError("artifact format/length gate failed")
+    text = generate_artifact_text(task_id, stages, bundle)
     value = receipt(task_id, text, score, stages, bundle)
-    md_path.write_text(text.rstrip() + "\n", encoding="utf-8")
-    json_path.write_text(json.dumps(value, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
-    os.chmod(md_path, 0o640)
-    os.chmod(json_path, 0o640)
+    verify_receipt(task_id, stages, value, text)
+    preserve_replaced_artifacts(task_id, int(time.time()))
+    atomic_write(md_path, text)
+    atomic_write(json_path, json.dumps(value, ensure_ascii=True, indent=2) + "\n")
     ledger(
         "rnd_artifact_created", workflow_id=task_id,
         artifact_sha256=value["artifact_sha256"], score=score,
@@ -401,21 +564,63 @@ def tick() -> None:
     if not isinstance(sagas, dict):
         sagas = {}
         state["sagas"] = sagas
-    for task_id, stages in sorted(workflows.items()):
+    retries = state.setdefault("artifact_retries", {})
+    if not isinstance(retries, dict):
+        retries = {}
+        state["artifact_retries"] = retries
+    now = time.time()
+    attempted = 0
+    ranked = sorted(
+        workflows.items(),
+        key=lambda item: max(
+            (evidence_v55.parse_timestamp(stage.get("message_ts")) for stage in item[1].values() if isinstance(stage, dict)),
+            default=0,
+        ),
+        reverse=True,
+    )
+    for task_id, stages in ranked:
         sagas[task_id] = evidence_v55.saga_checkpoint(
-            task_id, stages, artifact_verified=task_id in state.setdefault("artifacts", {}),
+            task_id, stages, artifact_verified=False,
         )
-        if task_id in state.setdefault("artifacts", {}) or not complete(stages):
+        if not complete(stages):
             continue
+        if task_id in state.setdefault("artifacts", {}):
+            try:
+                read_verified_receipt(task_id, stages)
+                sagas[task_id] = evidence_v55.saga_checkpoint(task_id, stages, artifact_verified=True)
+                retries.pop(task_id, None)
+                continue
+            except Exception as exc:
+                state["artifacts"].pop(task_id, None)
+                log(
+                    "artifact_receipt_invalid", workflow_id=task_id,
+                    error_type=classify_error(exc), error=clean(exc, 500),
+                    decision="removed_from_verified_index;artifact_files_preserved",
+                )
+        retry = retries.get(task_id, {}) if isinstance(retries.get(task_id, {}), dict) else {}
+        if float(retry.get("next_retry_at", 0) or 0) > now:
+            continue
+        if attempted >= MAX_ARTIFACT_ATTEMPTS_PER_TICK:
+            continue
+        attempted += 1
         try:
             value = create(task_id, stages)
             state["artifacts"][task_id] = {"sha256": value["artifact_sha256"], "score": value["cross_validation_score"], "created_at": value["created_at"]}
             sagas[task_id] = value["saga"]
+            retries.pop(task_id, None)
             state["last_error"] = ""
             save_state(state)
             log("artifact_ready", workflow_id=task_id, score=value["cross_validation_score"])
         except Exception as exc:
             state["last_error"] = clean(exc, 500)
+            error_type = classify_error(exc)
+            attempts = int(retry.get("attempts", 0) or 0) + 1
+            delay = retry_delay(attempts, error_type)
+            retries[task_id] = {
+                "attempts": attempts, "error_type": error_type,
+                "last_error": state["last_error"], "last_attempt_at": int(now),
+                "next_retry_at": int(now + delay),
+            }
             evidence_hash = ""
             try:
                 evidence_hash = evidence_v55.build_bundle(task_id, stages)["merkle_root"]
@@ -424,12 +629,14 @@ def tick() -> None:
             ledger(
                 "rnd_artifact_rejected", workflow_id=task_id,
                 stage=sagas.get(task_id, {}).get("resume_from", "UNKNOWN"),
-                signer_did="", evidence_hash=evidence_hash, error=state["last_error"],
+                signer_did="", evidence_hash=evidence_hash, error_type=error_type,
+                retry_attempt=attempts, retry_after_seconds=delay, error=state["last_error"],
             )
             log(
                 "artifact_rejected", workflow_id=task_id,
                 stage=sagas.get(task_id, {}).get("resume_from", "UNKNOWN"),
-                signer_did="", evidence_hash=evidence_hash, error=state["last_error"],
+                signer_did="", evidence_hash=evidence_hash, error_type=error_type,
+                retry_attempt=attempts, retry_after_seconds=delay, error=state["last_error"],
             )
     save_state(state)
 

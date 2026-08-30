@@ -1,4 +1,4 @@
-name: A2A v5.5 verifiable evidence regression
+name: A2A v5.5.1 resilient evidence regression
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: a2a-v55-${{ github.event.pull_request.number || github.ref }}
+  group: a2a-v551-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,6 +37,7 @@ jobs:
       - name: Offline integration and E2E artifact
         run: |
           python3 deploy/a2a-v5/test_v55_integration.py
+          python3 deploy/a2a-v5/test_v551_recovery.py
           python3 deploy/a2a-v5/demo_v55.py --output /tmp/a2a-v55-demo
           test -s /tmp/a2a-v55-demo/evidence-bundle.json
           test -s /tmp/a2a-v55-demo/artifact.md
@@ -44,6 +45,8 @@ jobs:
       - name: V5.5 installer safety
         run: |
           python3 deploy/a2a-v5/test_verifiable_evidence_installer_v55.py
+          python3 deploy/a2a-v5/test_verifiable_evidence_installer_v551.py
+          bash -n deploy/a2a-v5/install-verifiable-evidence-v5.5.1.sh
 
       - name: Love8 pinned peer invitation bridge
         run: |

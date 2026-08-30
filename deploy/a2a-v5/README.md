@@ -27,7 +27,43 @@ The resulting loop is:
 
 `evidence -> objective -> signed request -> Builder analysis -> Reviewer challenge -> revision -> final assessment -> cross-validation artifact`
 
-## Current review release v5.5
+## Current recovery release v5.5.1
+
+v5.5.1 is an AI2AI-only reliability patch for failures observed after the
+v5.5 rollout. It does not change the Love8 Director or Aizong Builder wire
+protocol. The Curator can use a complete persisted stage cache while one or
+more public rooms return HTTP 503, and it processes at most one newest eligible
+artifact per poll so an old 90-second provider timeout cannot monopolize the
+queue.
+
+Artifact failures are classified as `room_503`, `provider_timeout`,
+`format_gate`, `evidence_gate`, or `receipt_verification`. Provider and format
+failures receive persistent per-workflow exponential backoff. A malformed
+model draft gets one constrained repair pass, but the repaired result still
+must contain all exact headings, the workflow ID, and the computed Merkle root
+before any artifact or receipt is written.
+
+Receipts are no longer trusted because they contain `evidence_verified: true`.
+Both the Curator and `technocore status` independently re-verify the bundle,
+rebuild it from the current signed stages, compare the Merkle root, bind the
+Saga to the workflow, and hash the exact persisted Markdown bytes. `/brief`
+lists only a Markdown/JSON pair that passes bundle and SHA-256 checks. An old
+unverified Markdown file is preserved with an `.unverified-*` archive name
+only after a replacement has passed every gate.
+
+Run this installer only on AI2AI, first in check-only mode:
+
+```bash
+bash deploy/a2a-v5/install-verifiable-evidence-v5.5.1.sh --check
+bash deploy/a2a-v5/install-verifiable-evidence-v5.5.1.sh --apply
+```
+
+The installer pins every payload to an immutable commit and digest, patches
+the existing v3.2 Telegram bridge without replacing it, and installs a guarded
+rollback. DID/private keys, mailboxes, cursors, nonces, stage cache, retry
+state, provenance and all historical artifacts are never restored or deleted.
+
+## Base evidence release v5.5
 
 v5.5 hardens the evidence audit boundary without replacing the proven v5.4
 three-node transport. Love8 and Aizong keep producing the same signed stages;
