@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression coverage for cross-round Curator evidence collection."""
+"""Regression coverage for cursor-backed Curator evidence collection."""
 
 from __future__ import annotations
 
@@ -57,16 +57,21 @@ class Response:
             raise self.error
 
     def json(self):
-        return {"messages": self.messages}
+        return {
+            "messages": self.messages,
+            "last_seq": max((int(row.get("seq", 0)) for row in self.messages), default=0),
+        }
 
 
 class ScriptedRequests:
     def __init__(self, rows):
         self.rows = {key: list(value) for key, value in rows.items()}
         self.limits = []
+        self.params = []
 
     def get(self, url, *, params, **kwargs):
         self.limits.append(params["limit"])
+        self.params.append(dict(params))
         room = url.rsplit("/", 1)[-1]
         queue = self.rows.setdefault(room, [])
         value = queue.pop(0) if queue else Response([])
@@ -110,8 +115,8 @@ class CuratorReliabilityTests(unittest.TestCase):
             "d-ai2ai": [Response(error=RuntimeError("503")), Response([message("CHALLENGE", AI2AI)])],
         })
         module.requests = network
-        rows = module.room_messages("d-ai2ai")
-        self.assertEqual(len(rows), 1)
+        body = module.room_messages("d-ai2ai")
+        self.assertEqual(len(body["messages"]), 1)
         self.assertEqual(network.limits, [200, 200])
 
     def test_verified_stages_survive_partial_room_failures_and_restart(self):
@@ -143,6 +148,39 @@ class CuratorReliabilityTests(unittest.TestCase):
             "d-love8": [Response([])],
         })
         self.assertNotIn("wf-cache-test", module.scan())
+
+    def test_successful_cursor_is_persisted_and_reused(self):
+        first = self.load()
+        network = ScriptedRequests({
+            "d-ai2ai": [Response([message("CHALLENGE", AI2AI, seq=41)])],
+            "d-aizong": [Response([])],
+            "d-love8": [Response([])],
+        })
+        first.requests = network
+        first.scan()
+        self.assertEqual(first.load_room_cursors()["d-ai2ai"], 41)
+
+        second = self.load()
+        network = ScriptedRequests({
+            "d-ai2ai": [Response([message("CHALLENGE", AI2AI, seq=42)])],
+            "d-aizong": [Response([])],
+            "d-love8": [Response([])],
+        })
+        second.requests = network
+        second.scan()
+        ai2ai_params = next(row for row in network.params if row.get("since") == 41)
+        self.assertEqual(ai2ai_params, {"format": "json", "limit": 200, "since": 41})
+
+    def test_failed_room_does_not_advance_cursor(self):
+        module = self.load()
+        module.save_cache({}, {"d-ai2ai": 17})
+        module.requests = ScriptedRequests({
+            "d-ai2ai": [Response(error=RuntimeError("503"))] * 3,
+            "d-aizong": [Response([])],
+            "d-love8": [Response([])],
+        })
+        module.scan()
+        self.assertEqual(module.load_room_cursors()["d-ai2ai"], 17)
 
 
 if __name__ == "__main__":
