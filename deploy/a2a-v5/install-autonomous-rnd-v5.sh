@@ -5,9 +5,10 @@ set -Eeuo pipefail
 # The existing identity, mailbox, peer map, cursor and provenance are never
 # replaced.  v5 adds independent services and a signed Love8 request gate.
 
-VERSION="5.1.0"
+VERSION="5.4.0"
 REPO_RAW="https://raw.githubusercontent.com/yinchun6969/technocore-chat"
-V5_REF="a2a-autonomous-rnd-v5"
+# Release tooling replaces this marker with an immutable reviewed commit.
+V5_REF="__RUNTIME_REF__"
 V5_RAW="$REPO_RAW/$V5_REF/deploy/a2a-v5"
 # This is the already-reviewed scheduler-gate patch.  Pinning a commit keeps
 # a later branch move from silently changing the gate used by this installer.
@@ -174,7 +175,7 @@ Type=simple
 User=tcagent
 Group=tcagent
 EnvironmentFile=$env
-Environment=RND_V5_CURATOR_POLL_SECONDS=120
+Environment=RND_V5_CURATOR_POLL_SECONDS=30
 Environment=RND_V5_PUBLISH_RECEIPTS=1
 ExecStart=$py $curator run
 Restart=always
@@ -252,13 +253,11 @@ OLD_CURATOR_ENABLED="$old_curator_enabled"
 
 systemctl disable --now technocore-a2a-rnd-v5.service technocore-a2a-rnd-curator-v5.service 2>/dev/null || true
 rm -f "\$DIRECTOR_UNIT" "\$CURATOR_UNIT"
-rm -rf "\$ROOT/rnd-v5" "\$ROOT/rnd-v5-state" "\$ROOT/rnd-v5-artifacts"
+rm -rf "\$ROOT/rnd-v5"
   rm -f /usr/local/bin/tc-a2a-rnd-v5-room
 if [ -f "\$BACKUP/prechange.tgz" ]; then
   tar -C / -xzf "\$BACKUP/prechange.tgz" \
     opt/technocore-a2a/rnd-v5 \
-    opt/technocore-a2a/rnd-v5-state \
-    opt/technocore-a2a/rnd-v5-artifacts \
     etc/systemd/system/technocore-a2a-rnd-v5.service \
     etc/systemd/system/technocore-a2a-rnd-curator-v5.service \
     usr/local/bin/tc-a2a-rnd-v5-status \
@@ -274,7 +273,7 @@ if [ "\$OLD_CURATOR_ENABLED" = enabled ]; then systemctl enable technocore-a2a-c
 if [ "\$OLD_SCHEDULER_ACTIVE" = active ]; then systemctl start technocore-a2a-scheduler.service; else systemctl stop technocore-a2a-scheduler.service 2>/dev/null || true; fi
 if [ "\$OLD_CURATOR_ACTIVE" = active ]; then systemctl start technocore-a2a-curator.service; else systemctl stop technocore-a2a-curator.service 2>/dev/null || true; fi
 systemctl restart technocore-a2a.service
-echo "AI2AI R&D v5 rolled back; existing identity/mailbox/cursor/provenance were preserved"
+echo "AI2AI R&D v5 rolled back; live state/artifacts and existing identity/mailbox/cursor/provenance were preserved"
 echo "backup=\$BACKUP"
 EOF
   chmod 0700 /usr/local/bin/tc-a2a-rnd-v5-rollback
