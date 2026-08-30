@@ -17,6 +17,7 @@ HERE = Path(__file__).resolve().parent
 
 FAKE_AGENT = r'''
 import json
+import re
 AGENT = "ai2ai"
 BASE = "https://example.invalid"
 class Requests:
@@ -28,8 +29,10 @@ def ledger(*args, **kwargs): return None
 def payload(*args, **kwargs): return "receipt"
 def signed_post(*args, **kwargs): return None
 def ai_call(prompt):
+    workflow = re.search(r"WORKFLOW:\s*(wf-[^\s]+)", prompt).group(1)
+    merkle = re.search(r"EVIDENCE_MERKLE_ROOT:\s*([0-9a-f]{64})", prompt).group(1)
     body = "verified evidence and independent source cross validation test challenge confidence " * 5
-    return "# Title\n## Objective\n" + body + "\n## Verified Evidence\n" + body + "\n## Cross-Validation\n" + body + "\n## Findings\n" + body + "\n## Design Proposal\n" + body + "\n## Minimal Test Matrix\n" + body + "\n## Open Questions\n" + body + "\n## Provenance\n" + body
+    return "# Title\n## Objective\nWORKFLOW: " + workflow + "\nEVIDENCE_MERKLE_ROOT: " + merkle + "\n" + body + "\n## Verified Evidence\n" + body + "\n## Cross-Validation\n" + body + "\n## Findings\n" + body + "\n## Design Proposal\n" + body + "\n## Minimal Test Matrix\n" + body + "\n## Open Questions\n" + body + "\n## Provenance\n" + body
 '''
 
 
@@ -92,6 +95,13 @@ class V55IntegrationTests(unittest.TestCase):
         snapshot = status.snapshot("wf-v55-integration")
         self.assertEqual(snapshot["state"], "ARTIFACT_VERIFIED")
         self.assertTrue(snapshot["evidence_verified"])
+
+        artifact = self.root / "rnd-v5-artifacts/wf-v55-integration.md"
+        artifact.write_text(artifact.read_text() + "tampered\n", encoding="utf-8")
+        tampered = status.snapshot("wf-v55-integration")
+        self.assertEqual(tampered["state"], "COMPLETE_SIGNED")
+        self.assertFalse(tampered["evidence_verified"])
+        self.assertEqual(tampered["verification_error"], "artifact SHA256 mismatch")
 
     def test_offline_e2e_generates_verifiable_files(self):
         output = Path(self.temp.name) / "demo"
