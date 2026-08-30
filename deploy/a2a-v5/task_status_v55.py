@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -85,34 +86,68 @@ def errors_for(task_id: str, limit: int = 8) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: float(row.get("ts", 0) or 0))[-limit:]
 
 
+def verify_artifact(task_id: str, stages: dict[str, Any]) -> tuple[bool, str, str]:
+    md_path = ARTIFACTS / f"{task_id}.md"
+    json_path = ARTIFACTS / f"{task_id}.json"
+    if not md_path.is_file() or not json_path.is_file():
+        return False, "verified artifact pair is incomplete", ""
+    try:
+        text = md_path.read_text(encoding="utf-8")
+        receipt = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        return False, f"artifact pair unreadable: {exc}", ""
+    if not isinstance(receipt, dict) or receipt.get("workflow_id") != task_id:
+        return False, "receipt workflow binding mismatch", ""
+    if receipt.get("evidence_verified") is not True:
+        return False, "receipt is not marked evidence_verified", ""
+    bundle = receipt.get("evidence_bundle")
+    try:
+        evidence_v55.verify_bundle(bundle)
+        current = evidence_v55.build_bundle(task_id, stages)
+    except Exception as exc:
+        return False, f"evidence bundle invalid: {exc}", ""
+    if bundle != current:
+        return False, "receipt evidence does not match current signed stages", ""
+    root = current["merkle_root"]
+    if receipt.get("evidence_merkle_root") != root:
+        return False, "receipt Merkle root mismatch", ""
+    if receipt.get("artifact_sha256") != hashlib.sha256(text.encode()).hexdigest():
+        return False, "artifact SHA256 mismatch", ""
+    saga = receipt.get("saga", {})
+    if not isinstance(saga, dict) or saga.get("task_id") != task_id or saga.get("state") != "ARTIFACT_VERIFIED":
+        return False, "receipt Saga binding invalid", ""
+    return True, "", root
+
+
 def snapshot(task_id: str) -> dict[str, Any]:
     values = workflows()
     stages = values.get(task_id)
     if not isinstance(stages, dict):
         return {
-            "version": "5.5.0", "task_id": task_id, "found": False,
+            "version": "5.5.1", "task_id": task_id, "found": False,
             "state": "NOT_OBSERVED", "resume_from": "WORKFLOW_TASK", "errors": errors_for(task_id),
         }
-    artifact = read_json(ARTIFACTS / f"{task_id}.json", {})
-    verified = bool(
-        isinstance(artifact, dict)
-        and artifact.get("evidence_merkle_root")
-        and artifact.get("evidence_verified") is True
-    )
+    verified, verification_error, verified_root = verify_artifact(task_id, stages)
     saga = evidence_v55.saga_checkpoint(task_id, stages, artifact_verified=verified)
     present = [stage for stage in evidence_v55.STAGE_ORDER if stage in stages]
     missing = [stage for stage in evidence_v55.STAGE_ORDER if stage not in stages]
+    curator_state = read_json(CURATOR_STATE, {})
+    retry_map = curator_state.get("artifact_retries", {}) if isinstance(curator_state, dict) else {}
+    retry = retry_map.get(task_id, {}) if isinstance(retry_map, dict) else {}
     result: dict[str, Any] = {
-        "version": "5.5.0",
+        "version": "5.5.1",
         "task_id": task_id,
         "found": True,
         "state": saga["state"],
         "resume_from": saga["resume_from"],
         "present_stages": present,
         "missing_stages": missing,
-        "artifact": str(ARTIFACTS / f"{task_id}.md") if (ARTIFACTS / f"{task_id}.md").exists() else "",
+        "artifact": str(ARTIFACTS / f"{task_id}.md") if verified else "",
+        "unverified_artifact": str(ARTIFACTS / f"{task_id}.md") if not verified and (ARTIFACTS / f"{task_id}.md").exists() else "",
         "evidence_verified": verified,
-        "evidence_merkle_root": artifact.get("evidence_merkle_root", "") if isinstance(artifact, dict) else "",
+        "evidence_merkle_root": verified_root,
+        "verification_error": verification_error,
+        "retry": retry if isinstance(retry, dict) else {},
         "errors": errors_for(task_id),
     }
     return result
@@ -134,6 +169,16 @@ def render(value: dict[str, Any]) -> str:
             f"evidence_merkle_root: {value.get('evidence_merkle_root') or 'pending'}",
             f"artifact: {value.get('artifact') or 'pending'}",
         ))
+        if value.get("verification_error"):
+            lines.append(f"verification_error: {value['verification_error']}")
+        retry = value.get("retry", {})
+        if isinstance(retry, dict) and retry:
+            lines.append(
+                "retry: attempts={attempts} error_type={error_type} next_retry_at={next_retry_at}".format(
+                    attempts=retry.get("attempts", 0), error_type=retry.get("error_type", "unknown"),
+                    next_retry_at=retry.get("next_retry_at", 0),
+                )
+            )
     errors = value.get("errors", [])
     lines.append(f"structured_errors: {len(errors)}")
     for row in errors:
