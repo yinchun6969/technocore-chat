@@ -44,6 +44,7 @@ jobs:
 
       - name: V5.5 installer safety
         run: |
+          python3 -m pip install --disable-pip-version-check "cryptography==46.0.3"
           python3 deploy/a2a-v5/test_existing_did_quickstart_v1.py
           python3 deploy/a2a-v5/test_existing_did_quickstart_installer_v1.py
           python3 deploy/a2a-v5/test_verifiable_evidence_installer_v55.py
