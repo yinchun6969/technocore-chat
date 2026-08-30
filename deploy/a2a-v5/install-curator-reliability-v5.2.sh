@@ -7,9 +7,9 @@ ENV_FILE="$ROOT/.env"
 CURATOR="$ROOT/rnd-v5/autonomous-curator-v5.py"
 SERVICE="technocore-a2a-rnd-curator-v5.service"
 BACKUP_ROOT="/root/tc-a2a-curator-v52-backups"
-SOURCE_REF="__SOURCE_REF__"
+SOURCE_REF="7f159d8c5129a30e801d8f8c121d4b369f1ee702"
 SOURCE_URL="https://raw.githubusercontent.com/yinchun6969/technocore-chat/$SOURCE_REF/deploy/a2a-v5/autonomous-curator-v5.py"
-SOURCE_SHA256="__CURATOR_SHA256__"
+SOURCE_SHA256="fdef14baf1fad125b0c60c8e32dd254dc25309db44ef6ef7266933c59d5ab4c6"
 MODE="check"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
