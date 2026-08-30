@@ -32,6 +32,11 @@ SENSITIVE = re.compile(r"BEGIN [A-Z ]*PRIVATE KEY|(?:api[_-]?key|password|token|
 B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 
+def default_data_root() -> Path:
+    configured = os.environ.get("XDG_DATA_HOME")
+    return (Path(configured) if configured else Path.home() / ".local" / "share") / "technocore-did-onboarding"
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
         raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
@@ -357,8 +362,9 @@ def command_send(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--state", type=Path, required=True)
+    data_root = default_data_root()
+    parser.add_argument("--config", type=Path, default=data_root / "config.json")
+    parser.add_argument("--state", type=Path, default=data_root / "state" / "nonces.json")
     parser.add_argument("--base-url", default=BASE_URL)
     sub = parser.add_subparsers(dest="command", required=True)
     wizard = sub.add_parser("wizard")
