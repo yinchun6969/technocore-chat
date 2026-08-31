@@ -111,6 +111,28 @@ digest-guarded rollback next to its code backup. Successful installation should
 be followed by a new real workflow; acceptance requires the signed sequence
 `WORKFLOW_TASK -> BUILD_RESULT -> CHALLENGE -> REVISED_RESULT -> COMPLETE`.
 
+### Love8 outbound duplicate-check recovery v3.7
+
+A real acceptance attempt also exposed a transient failure before the first
+stage was sent: Love8's duplicate check received HTTP 503 while reading the
+Aizong route, and the exception aborted `workflow-start`. v3.7 retries only
+429, 5xx and network failures with bounded exponential backoff. It never treats
+an unavailable duplicate check as permission to send; after five failed reads
+it stops with `OUTBOUND_DEDUPE_UNAVAILABLE` and states that no stage was sent.
+
+The installer is pinned to an immutable commit and SHA-256, targets only the
+Love8 Scout role, preserves the prior service state, and provides a
+digest-guarded rollback:
+
+```bash
+bash deploy/a2a-v5/install-love8-outbound-dedupe-v3.7.sh --check
+bash deploy/a2a-v5/install-love8-outbound-dedupe-v3.7.sh --apply
+```
+
+The failed acceptance command shown in the incident created no workflow ID and
+must not be marked complete or replayed. After installation, start one new real
+workflow and verify all five signed stages.
+
 ## Recovery base v5.5.1
 
 v5.5.1 is an AI2AI-only reliability patch for failures observed after the
