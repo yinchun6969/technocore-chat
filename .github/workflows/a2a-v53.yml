@@ -70,6 +70,12 @@ jobs:
         run: |
           python3 deploy/a2a-v5/test_aizong_evidence_mirror_v35.py
 
+      - name: Aizong cursor-aware Builder polling
+        run: |
+          bash -n deploy/a2a-v5/install-aizong-cursor-poll-v3.6.sh
+          grep -Eq 'SOURCE_REF="[0-9a-f]{40}"' deploy/a2a-v5/install-aizong-cursor-poll-v3.6.sh
+          python3 deploy/a2a-v5/test_aizong_cursor_poll_v36.py
+
       - name: Research context and cadence
         run: |
           sudo -E "$(command -v python3)" deploy/a2a-v5/test_research_context_v32.py
