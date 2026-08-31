@@ -546,6 +546,35 @@ def test_task_status_cli_reports_stage_and_evidence(tmp_path):
     assert "stage_1=COMPLETE agent=Love8 hash=0123456789abcdef" in result.stdout
 
 
+def test_task_status_cli_never_promotes_retained_legacy_root(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    curl = fake_bin / "curl"
+    curl.write_text(
+        "#!/bin/sh\n"
+        'printf \'%s\\n\' \'{"snapshot":{"workflows":[{"task_id":"wf-legacy",'
+        '"status":"active","current_stage":"WORKFLOW_TASK","conflicts":0,'
+        '"evidence_algorithm":"sha256-merkle-v1","evidence_root":"legacy-root",'
+        '"evidence":[{}],"stages":[{"kind":"WORKFLOW_TASK","agent":"Love8",'
+        '"text_sha256":"0123456789abcdef9999"}]}]}}\'\n'
+    )
+    curl.chmod(0o755)
+    env = os.environ | {"PATH": f"{fake_bin}:/usr/bin:/bin"}
+    result = subprocess.run(
+        ["bash", str(ROOT / "deploy/atlas/tc-atlas"), "task", "wf-legacy"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "evidence=0" in result.stdout
+    assert "legacy_evidence_ignored=1" in result.stdout
+    assert "evidence_root=none" in result.stdout
+    assert "evidence_status=awaiting_fresh_snapshot" in result.stdout
+    assert "observed_evidence_algorithm=sha256-merkle-v1" in result.stdout
+    assert "receipt_status=legacy_snapshot" in result.stdout
+
+
 def test_offline_demo_generates_reproducible_evidence_artifacts(tmp_path):
     output = tmp_path / "demo"
     result = subprocess.run(

@@ -40,26 +40,33 @@ print(f"status={workflow.get('"'"'status'"'"', '"'"'unknown'"'"')}")
 print(f"current_stage={workflow.get('"'"'current_stage'"'"', '"'"'none'"'"')}")
 print(f"conflicts={int(workflow.get('"'"'conflicts'"'"', 0) or 0)}")
 print("a2a_version=5.5.2")
-evidence = workflow.get("evidence", [])
+expected_algorithm = "technocore.a2a/evidence-bundle-v1"
+observed_algorithm = workflow.get("evidence_algorithm", "none")
+compatible_evidence = observed_algorithm == expected_algorithm
+raw_evidence = workflow.get("evidence", [])
+evidence = raw_evidence if compatible_evidence else []
 stages = workflow.get("stages", [])
-evidence_root = workflow.get("evidence_root", "") or ""
+evidence_root = (workflow.get("evidence_root", "") or "") if compatible_evidence else ""
 if evidence and evidence_root:
     evidence_status = "ready"
     evidence_reason = "independently derived from public stages with A2A v5.5.2 canonicalization"
-elif workflow.get("receipt_status") == "legacy_snapshot":
+elif not compatible_evidence or workflow.get("receipt_status") == "legacy_snapshot":
     evidence_status = "awaiting_fresh_snapshot"
     evidence_reason = "retained legacy Atlas root is not treated as A2A v5.5.2 evidence"
 else:
     evidence_status = "unavailable"
     evidence_reason = "all five canonical public signed stages have not yet been observed"
 print(f"evidence={len(evidence)}")
+print(f"legacy_evidence_ignored={len(raw_evidence) if not compatible_evidence else 0}")
 print("evidence_schema=technocore.a2a/evidence-v1")
-print(f"evidence_algorithm={workflow.get('"'"'evidence_algorithm'"'"', '"'"'none'"'"')}")
+print(f"evidence_algorithm={expected_algorithm}")
+print(f"observed_evidence_algorithm={observed_algorithm}")
 print(f"evidence_root={evidence_root or '"'"'none'"'"'}")
 print(f"evidence_status={evidence_status}")
 print(f"evidence_reason={evidence_reason}")
-receipt = workflow.get("receipt") or {}
-print(f"receipt_status={workflow.get('"'"'receipt_status'"'"', '"'"'not_observed'"'"')}")
+receipt = (workflow.get("receipt") or {}) if compatible_evidence else {}
+receipt_status = workflow.get("receipt_status", "not_observed") if compatible_evidence else "legacy_snapshot"
+print(f"receipt_status={receipt_status}")
 print(f"receipt_root={receipt.get('"'"'evidence_merkle_root'"'"', '"'"'none'"'"') or '"'"'none'"'"'}")
 print(f"artifact_sha256_claim={receipt.get('"'"'artifact_sha256'"'"', '"'"'none'"'"') or '"'"'none'"'"'}")
 print("artifact_bytes_verified=false")
