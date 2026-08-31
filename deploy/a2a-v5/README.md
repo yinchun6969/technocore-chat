@@ -49,6 +49,32 @@ bash deploy/a2a-v5/install-verifiable-evidence-v5.5.2.sh --check
 bash deploy/a2a-v5/install-verifiable-evidence-v5.5.2.sh --apply
 ```
 
+### Aizong Builder receive repair v3.6
+
+The A2A v5.5.2 deployment keeps the existing Aizong Builder, but a live task
+showed that its fallback-room listener was still polling one fixed latest-200
+URL. That request omitted the persisted cursor even though the Technocore room
+protocol requires `?since=<last_seq>` for incremental, cache-resistant reads.
+The service could therefore remain active while a new `WORKFLOW_TASK` never
+entered its provenance ledger.
+
+`repair-aizong-cursor-poll-v3.6.py` changes only that listener: every request
+uses the current persisted cursor plus bounded long polling, and the main loop
+passes its cursor into the fetch. It does not rewind or prime the cursor, replay
+history, alter a DID/key/mailbox/peer route, or manufacture a missing Builder
+stage. The wrapper downloads the repair from an immutable commit and verifies
+its SHA-256. Apply it only on Aizong after check-only preflight:
+
+```bash
+bash deploy/a2a-v5/install-aizong-cursor-poll-v3.6.sh --check
+bash deploy/a2a-v5/install-aizong-cursor-poll-v3.6.sh --apply
+```
+
+The repair preserves the prior active/inactive service state and writes a
+digest-guarded rollback next to its code backup. Successful installation should
+be followed by a new real workflow; acceptance requires the signed sequence
+`WORKFLOW_TASK -> BUILD_RESULT -> CHALLENGE -> REVISED_RESULT -> COMPLETE`.
+
 ## Recovery base v5.5.1
 
 v5.5.1 is an AI2AI-only reliability patch for failures observed after the
