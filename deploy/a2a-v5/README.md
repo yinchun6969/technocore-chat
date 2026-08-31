@@ -133,6 +133,24 @@ The failed acceptance command shown in the incident created no workflow ID and
 must not be marked complete or replayed. After installation, start one new real
 workflow and verify all five signed stages.
 
+### Love8 inbound cursor recovery v3.8
+
+The next acceptance run reached `REVISED_RESULT`, but Love8's active legacy
+runner recorded no event for that task and therefore never signed `COMPLETE`.
+v3.8 replaces the fixed latest-200 inbound read with the persisted `since`
+cursor plus a bounded 10-second long poll. It requires the v3.7 outbound retry,
+supports both the fallback-room and direct-mailbox layouts, and preserves the
+existing cursor rather than rewinding or replaying mailbox history.
+
+```bash
+bash deploy/a2a-v5/install-love8-inbound-cursor-v3.8.sh --check
+bash deploy/a2a-v5/install-love8-inbound-cursor-v3.8.sh --apply
+```
+
+After installation, allow the existing signed workflow to resume naturally.
+Do not synthesize `COMPLETE`; acceptance still requires Love8's real signed
+terminal stage and the verified five-stage evidence bundle.
+
 ## Recovery base v5.5.1
 
 v5.5.1 is an AI2AI-only reliability patch for failures observed after the

@@ -94,6 +94,12 @@ jobs:
           grep -Eq 'SOURCE_REF="[0-9a-f]{40}"' deploy/a2a-v5/install-love8-outbound-dedupe-v3.7.sh
           python3 deploy/a2a-v5/test_love8_outbound_dedupe_v37.py
 
+      - name: Love8 cursor-aware inbound polling
+        run: |
+          bash -n deploy/a2a-v5/install-love8-inbound-cursor-v3.8.sh
+          grep -Eq 'SOURCE_REF="[0-9a-f]{40}"' deploy/a2a-v5/install-love8-inbound-cursor-v3.8.sh
+          python3 deploy/a2a-v5/test_love8_inbound_cursor_v38.py
+
       - name: Research context and cadence
         run: |
           sudo -E "$(command -v python3)" deploy/a2a-v5/test_research_context_v32.py
