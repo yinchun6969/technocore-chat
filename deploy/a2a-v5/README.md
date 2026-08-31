@@ -85,6 +85,72 @@ bash deploy/a2a-v5/install-verifiable-evidence-v5.5.2.sh --check
 bash deploy/a2a-v5/install-verifiable-evidence-v5.5.2.sh --apply
 ```
 
+### Aizong Builder receive repair v3.6
+
+The A2A v5.5.2 deployment keeps the existing Aizong Builder, but a live task
+showed that its fallback-room listener was still polling one fixed latest-200
+URL. That request omitted the persisted cursor even though the Technocore room
+protocol requires `?since=<last_seq>` for incremental, cache-resistant reads.
+The service could therefore remain active while a new `WORKFLOW_TASK` never
+entered its provenance ledger.
+
+`repair-aizong-cursor-poll-v3.6.py` changes only that listener: every request
+uses the current persisted cursor plus bounded long polling, and the main loop
+passes its cursor into the fetch. It does not rewind or prime the cursor, replay
+history, alter a DID/key/mailbox/peer route, or manufacture a missing Builder
+stage. The wrapper downloads the repair from an immutable commit and verifies
+its SHA-256. Apply it only on Aizong after check-only preflight:
+
+```bash
+bash deploy/a2a-v5/install-aizong-cursor-poll-v3.6.sh --check
+bash deploy/a2a-v5/install-aizong-cursor-poll-v3.6.sh --apply
+```
+
+The repair preserves the prior active/inactive service state and writes a
+digest-guarded rollback next to its code backup. Successful installation should
+be followed by a new real workflow; acceptance requires the signed sequence
+`WORKFLOW_TASK -> BUILD_RESULT -> CHALLENGE -> REVISED_RESULT -> COMPLETE`.
+
+### Love8 outbound duplicate-check recovery v3.7
+
+A real acceptance attempt also exposed a transient failure before the first
+stage was sent: Love8's duplicate check received HTTP 503 while reading the
+Aizong route, and the exception aborted `workflow-start`. v3.7 retries only
+429, 5xx and network failures with bounded exponential backoff. It never treats
+an unavailable duplicate check as permission to send; after five failed reads
+it stops with `OUTBOUND_DEDUPE_UNAVAILABLE` and states that no stage was sent.
+
+The installer is pinned to an immutable commit and SHA-256, targets only the
+Love8 Scout role, preserves either its systemd service or legacy process-runner
+state, and provides a digest-guarded rollback:
+
+```bash
+bash deploy/a2a-v5/install-love8-outbound-dedupe-v3.7.sh --check
+bash deploy/a2a-v5/install-love8-outbound-dedupe-v3.7.sh --apply
+```
+
+The failed acceptance command shown in the incident created no workflow ID and
+must not be marked complete or replayed. After installation, start one new real
+workflow and verify all five signed stages.
+
+### Love8 inbound cursor recovery v3.8
+
+The next acceptance run reached `REVISED_RESULT`, but Love8's active legacy
+runner recorded no event for that task and therefore never signed `COMPLETE`.
+v3.8 replaces the fixed latest-200 inbound read with the persisted `since`
+cursor plus a bounded 10-second long poll. It requires the v3.7 outbound retry,
+supports both the fallback-room and direct-mailbox layouts, and preserves the
+existing cursor rather than rewinding or replaying mailbox history.
+
+```bash
+bash deploy/a2a-v5/install-love8-inbound-cursor-v3.8.sh --check
+bash deploy/a2a-v5/install-love8-inbound-cursor-v3.8.sh --apply
+```
+
+After installation, allow the existing signed workflow to resume naturally.
+Do not synthesize `COMPLETE`; acceptance still requires Love8's real signed
+terminal stage and the verified five-stage evidence bundle.
+
 ## Recovery base v5.5.1
 
 v5.5.1 is an AI2AI-only reliability patch for failures observed after the
