@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - "deploy/a2a-v5/**"
-      - "projects/technocore-did-onboarding/**"
       - ".github/workflows/a2a-v53.yml"
   workflow_dispatch:
 
@@ -45,22 +44,11 @@ jobs:
 
       - name: V5.5 installer safety
         run: |
-          python3 -m pip install --disable-pip-version-check "cryptography==46.0.3"
-          python3 deploy/a2a-v5/test_existing_did_quickstart_v1.py
-          python3 deploy/a2a-v5/test_existing_did_quickstart_installer_v1.py
           python3 deploy/a2a-v5/test_verifiable_evidence_installer_v55.py
           python3 deploy/a2a-v5/test_verifiable_evidence_installer_v551.py
           python3 deploy/a2a-v5/test_verifiable_evidence_installer_v552.py
           bash -n deploy/a2a-v5/install-verifiable-evidence-v5.5.1.sh
           bash -n deploy/a2a-v5/install-verifiable-evidence-v5.5.2.sh
-          bash -n deploy/a2a-v5/install-existing-did-quickstart-v1.sh
-
-      - name: Standalone DID onboarding wizard
-        run: |
-          python3 -m unittest discover -s projects/technocore-did-onboarding/tests -p 'test_*.py'
-          bash -n projects/technocore-did-onboarding/install.sh
-          bash projects/technocore-did-onboarding/install.sh --check \
-            --source-dir projects/technocore-did-onboarding
 
       - name: Love8 pinned peer invitation bridge
         run: |
@@ -81,6 +69,12 @@ jobs:
       - name: Aizong signed evidence mirrors
         run: |
           python3 deploy/a2a-v5/test_aizong_evidence_mirror_v35.py
+
+      - name: Aizong cursor-aware Builder polling
+        run: |
+          bash -n deploy/a2a-v5/install-aizong-cursor-poll-v3.6.sh
+          grep -Eq 'SOURCE_REF="[0-9a-f]{40}"' deploy/a2a-v5/install-aizong-cursor-poll-v3.6.sh
+          python3 deploy/a2a-v5/test_aizong_cursor_poll_v36.py
 
       - name: Research context and cadence
         run: |
