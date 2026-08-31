@@ -151,7 +151,8 @@ def status(state: dict[str, Any], *, now: float | None = None) -> dict[str, Any]
         "error_code": state.get("error_code"),
         "consecutive_failures": max(0, int(state.get("consecutive_failures", 0))),
         "meaning": (
-            "Observed signed stages only; not proof of agent uptime, identity or research quality."
+            "A2A v5.5.2 public-stage evidence and receipt claims only; a matched receipt does not "
+            "prove agent uptime, identity, research quality or independent artifact-byte verification."
         ),
     }
 

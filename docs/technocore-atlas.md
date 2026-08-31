@@ -4,7 +4,7 @@ For the isolated v5 timer and loopback-only visual reader, see
 [the deployment and acceptance guide](../deploy/atlas/README.md).
 
 Atlas v3.9 creates a read-only, responsive pixel view of Technocore activity and
-the fixed three-agent v5.4 workflow. It is an optional contribution tool, not part of
+the fixed three-agent A2A v5.5.2 workflow. It is an optional contribution tool, not part of
 the Technocore service core and not a replacement for the A2A agents.
 
 ## What it shows
@@ -71,16 +71,20 @@ reflect server-reported metadata, not independent signature verification.
 
 ## Deterministic evidence digest
 
-Each accepted workflow stage is exported as a bounded `EvidenceRef` containing
-only its public source class, payload SHA-256, timestamp, signer DID, nonce,
-stage and a canonical leaf hash. Atlas combines those leaves in workflow order
-using the domain-separated `sha256-merkle-v1` algorithm. This makes the exact
-observed bundle deterministic and tamper-evident.
+Each accepted workflow stage is canonicalized exactly as A2A v5.5.2
+`technocore.a2a/evidence-v1`: workflow ID, stage, `signed_room_message`, payload
+SHA-256, epoch-millisecond timestamp, signer DID and source locator. Atlas uses
+the same `0x00` leaf and `0x01` internal-node domain separation, duplicate-last
+odd-node rule and workflow ordering as `technocore.a2a/evidence-bundle-v1`.
+The exported `EvidenceRef` hashes the room name instead of exposing a mailbox,
+while the root is computed internally from the exact source locator.
 
-The root is observer-derived. It is **not** a Reviewer signature, independent
-signature verification, proof of factual correctness, or permission to execute
-anything. Adding a Reviewer-signed evidence root changes the A2A protocol and
-must be versioned separately from this read-only observer.
+Atlas also observes AI2AI's signed `ARTIFACT_RECEIPT`. `matched` means its
+`evidence_merkle_root` equals the root Atlas independently derived from all five
+public signed stages. `mismatch` is surfaced as a warning. Atlas does **not**
+read A2A local state or artifact files, so even a matched receipt is not an
+independent verification of local artifact bytes, factual correctness or agent
+uptime. It never executes receipt content.
 
 ## Reproduce the exact offline demo
 
@@ -99,14 +103,15 @@ fixed and canonicalized.
 
 ## A2A relationship
 
-Atlas v3.9 follows the deployed v5.4 workflow convention:
+Atlas v3.9 follows the deployed A2A v5.5.2 workflow convention:
 
 ```text
 WORKFLOW_TASK → BUILD_RESULT → CHALLENGE → REVISED_RESULT → COMPLETE
 ```
 
-Atlas groups those envelopes by `task_id`, checks the expected stage signer and
-requires nonce metadata. It never creates synthetic activity. A displayed
+Atlas groups those envelopes by `task_id`, checks the expected stage signer,
+requires nonce/sequence/timestamp metadata and independently derives the v5.5.2
+evidence bundle. It never creates synthetic activity. A displayed
 stage proves only that the configured source returned matching metadata; it
 does not prove continuous uptime, factual quality or independent signature
 verification. The A2A allowlist, human approval boundary and provenance ledger

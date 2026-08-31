@@ -23,12 +23,18 @@ def resolve_workflow_rooms(path: Path) -> tuple[str, ...]:
     if not isinstance(value, dict):
         raise ValueError("pinned peers must be a DID-to-room object")
     required_dids = (WORKFLOW_SIGNERS["WORKFLOW_TASK"], WORKFLOW_SIGNERS["BUILD_RESULT"])
-    rooms = ["d-aizong"]
+    # v5.5.2 publishes the signed ARTIFACT_RECEIPT through the Reviewer route.
+    rooms = ["d-aizong", "d-ai2ai"]
     for did in required_dids:
         room = value.get(did)
         if not isinstance(room, str) or not _is_workflow_room(room):
             raise ValueError("required v5 peer mailbox is not pinned")
         rooms.append(room)
+    reviewer_room = value.get(WORKFLOW_SIGNERS["CHALLENGE"])
+    if reviewer_room is not None:
+        if not isinstance(reviewer_room, str) or not _is_workflow_room(reviewer_room):
+            raise ValueError("Reviewer receipt route is not pinned safely")
+        rooms.append(reviewer_room)
     return tuple(dict.fromkeys(rooms))
 
 

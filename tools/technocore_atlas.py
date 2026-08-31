@@ -33,6 +33,17 @@ from urllib.error import HTTPError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from tools.atlas_evidence_v552 import (
+    BUNDLE_SCHEMA,
+    EVIDENCE_SCHEMA,
+    SOURCE_TYPE,
+    evidence_leaf,
+    evidence_record,
+    merkle_root,
+    payload_hash,
+    timestamp_ms,
+)
+
 USER_AGENT = "technocore-atlas/0.2"
 MAX_RESPONSE_BYTES = 2_000_000
 ROOM_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
@@ -48,6 +59,7 @@ A2A_TYPES = {
     "BUILD_RESULT",
     "REVISED_RESULT",
     "SCHEDULER_REQUEST",
+    "ARTIFACT_RECEIPT",
 }
 WORKFLOW_STAGE_ORDER = (
     "WORKFLOW_TASK",
@@ -79,14 +91,16 @@ WORKFLOW_AGENTS = {
 }
 SECRET_KEY_RE = re.compile(r"(?:secret|token|password|private|api[_-]?key|seed|credential)", re.I)
 SAFE_LABEL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
-WORKFLOW_ROOM_RE = re.compile(r"^(?:d-aizong|mb-p-[a-z0-9]{16,64})$")
+WORKFLOW_ROOM_RE = re.compile(r"^(?:d-(?:aizong|ai2ai)|mb-p-[a-z0-9]{16,64})$")
 SENSITIVE_TEXT_RE = re.compile(
     r"-----BEGIN|(?:api[_-]?key|access[_-]?token|token|password|secret)\s*[:=]\s*\S+|"
     r"bearer\s+[A-Za-z0-9._~+/-]{12,}|\b\d{7,12}:[A-Za-z0-9_-]{25,}",
     re.I,
 )
 MAX_WORKFLOW_CONTENT_CHARS = 2600
-EVIDENCE_ALGORITHM = "sha256-merkle-v1"
+EVIDENCE_ALGORITHM = BUNDLE_SCHEMA
+RECEIPT_SIGNER = WORKFLOW_SIGNERS["CHALLENGE"]
+HEX_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _base_url(value: str) -> str:
@@ -219,17 +233,32 @@ class WorkflowStage:
     text_sha256: str
     signer_did: str = ""
     nonce: str = ""
+    payload_sha256: str = ""
+    timestamp_ms: int = 0
 
 
 @dataclass(frozen=True)
 class EvidenceRef:
+    schema: str
     source_type: str
     payload_sha256: str
-    timestamp: str
+    timestamp: int
     signer_did: str
-    nonce: str
     stage: str
     leaf_sha256: str
+    locator_room_sha256: str
+    locator_sequence: int
+
+
+@dataclass(frozen=True)
+class ArtifactReceipt:
+    signer_did: str
+    timestamp: str
+    sequence: int
+    artifact_sha256: str
+    evidence_merkle_root: str
+    evidence_schema: str
+    root_matches: bool
 
 
 @dataclass(frozen=True)
@@ -244,6 +273,8 @@ class WorkflowTrace:
     evidence: tuple[EvidenceRef, ...] = field(default_factory=tuple)
     evidence_root: str = ""
     evidence_algorithm: str = EVIDENCE_ALGORITHM
+    receipt: ArtifactReceipt | None = None
+    receipt_status: str = "not_observed"
 
 
 @dataclass(frozen=True)
@@ -335,15 +366,29 @@ def _trace_message(row: Any) -> TraceMessage | None:
     )
 
 
-def _workflow_stage(row: Any) -> tuple[str, WorkflowStage] | None:
-    """Validate one signed v5 stage and retain only its primary narrative field."""
+@dataclass(frozen=True)
+class _StageCandidate:
+    stage: WorkflowStage
+    evidence: dict[str, Any]
+
+
+def _workflow_stage(row: Any, room: str) -> tuple[str, _StageCandidate] | None:
+    """Validate one signed v5.5.2 stage and build its canonical evidence record."""
 
     if not isinstance(row, dict):
         return None
     raw_from = str(row.get("from", ""))
     nonce = row.get("nonce")
     text = row.get("text")
-    if not isinstance(text, str) or nonce is None:
+    sequence = _int_or_none(row.get("seq"))
+    message_timestamp = timestamp_ms(row.get("ts"))
+    if (
+        not isinstance(text, str)
+        or nonce is None
+        or sequence is None
+        or sequence <= 0
+        or message_timestamp <= 0
+    ):
         return None
     kind, task_id, payload = _a2a_payload(text)
     if (
@@ -359,7 +404,7 @@ def _workflow_stage(row: Any) -> tuple[str, WorkflowStage] | None:
     if content is None:
         return None
     agent, role = WORKFLOW_AGENTS[kind]
-    return task_id, WorkflowStage(
+    stage = WorkflowStage(
         kind=kind,
         seq=_int_or_none(row.get("seq")),
         ts=str(row.get("ts", ""))[:64],
@@ -371,43 +416,64 @@ def _workflow_stage(row: Any) -> tuple[str, WorkflowStage] | None:
         text_sha256=_sha256(text),
         signer_did=raw_from,
         nonce=str(nonce)[:32],
+        payload_sha256=payload_hash(payload),
+        timestamp_ms=message_timestamp,
+    )
+    try:
+        evidence = evidence_record(
+            workflow_id=task_id,
+            stage=kind,
+            payload=payload,
+            timestamp=message_timestamp,
+            signer_did=raw_from,
+            room=room,
+            sequence=sequence,
+        )
+    except (TypeError, ValueError):
+        return None
+    return task_id, _StageCandidate(stage=stage, evidence=evidence)
+
+
+def _artifact_receipt(row: Any) -> tuple[str, ArtifactReceipt] | None:
+    """Retain a bounded signed v5.5.2 receipt claim from the Reviewer."""
+
+    if not isinstance(row, dict) or row.get("nonce") is None:
+        return None
+    sequence = _int_or_none(row.get("seq"))
+    text = row.get("text")
+    if not isinstance(text, str) or sequence is None or sequence <= 0:
+        return None
+    kind, task_id, payload = _a2a_payload(text)
+    if kind != "ARTIFACT_RECEIPT" or not task_id or payload is None:
+        return None
+    signer = str(row.get("from", ""))
+    receipt_timestamp = timestamp_ms(row.get("ts"))
+    root = str(payload.get("evidence_merkle_root", ""))
+    artifact = str(payload.get("artifact_sha256", ""))
+    schema = str(payload.get("evidence_schema", ""))
+    if (
+        signer != RECEIPT_SIGNER
+        or receipt_timestamp <= 0
+        or not HEX_SHA256_RE.fullmatch(root)
+        or not HEX_SHA256_RE.fullmatch(artifact)
+        or schema != BUNDLE_SCHEMA
+    ):
+        return None
+    return task_id, ArtifactReceipt(
+        signer_did=signer,
+        timestamp=str(row.get("ts", ""))[:64],
+        sequence=sequence,
+        artifact_sha256=artifact,
+        evidence_merkle_root=root,
+        evidence_schema=schema,
+        root_matches=False,
     )
 
 
-def _evidence_leaf(task_id: str, stage: WorkflowStage) -> str:
-    """Hash one canonical public stage reference with domain separation."""
-
-    canonical = json.dumps(
-        {
-            "nonce": stage.nonce,
-            "payload_sha256": stage.text_sha256,
-            "signer_did": stage.signer_did,
-            "source_type": "technocore_signed_stage",
-            "stage": stage.kind,
-            "task_id": task_id,
-            "timestamp": stage.ts,
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode()
-    return hashlib.sha256(b"\x00" + canonical).hexdigest()
-
-
 def evidence_merkle_root(leaves: tuple[str, ...]) -> str:
-    """Return a deterministic domain-separated Merkle root for hex SHA-256 leaves."""
+    """Compatibility wrapper for the A2A v5.5.2 Merkle implementation."""
 
-    if not leaves:
-        return ""
-    nodes = [bytes.fromhex(leaf) for leaf in leaves]
-    while len(nodes) > 1:
-        if len(nodes) % 2:
-            nodes.append(nodes[-1])
-        nodes = [
-            hashlib.sha256(b"\x01" + nodes[index] + nodes[index + 1]).digest()
-            for index in range(0, len(nodes), 2)
-        ]
-    return nodes[0].hex()
+    return merkle_root(leaves)
 
 
 def _workflow_sort_key(stage: WorkflowStage) -> tuple[str, int]:
@@ -420,7 +486,8 @@ def _collect_workflows(
     timeout: float,
     fetcher: Callable[[str, float], dict[str, Any]],
 ) -> tuple[tuple[WorkflowTrace, ...], int]:
-    grouped: dict[str, dict[str, list[WorkflowStage]]] = {}
+    grouped: dict[str, dict[str, list[_StageCandidate]]] = {}
+    receipts: dict[str, list[ArtifactReceipt]] = {}
     errors = 0
     for room in dict.fromkeys(rooms):
         try:
@@ -434,39 +501,82 @@ def _collect_workflows(
             errors += 1
             continue
         for row in rows:
-            parsed = _workflow_stage(row)
-            if parsed is None:
+            parsed_receipt = _artifact_receipt(row)
+            if parsed_receipt is not None:
+                receipt_task, receipt = parsed_receipt
+                receipts.setdefault(receipt_task, []).append(receipt)
+            parsed_stage = _workflow_stage(row, room)
+            if parsed_stage is None:
                 continue
-            task_id, stage = parsed
-            bucket = grouped.setdefault(task_id, {}).setdefault(stage.kind, [])
-            if all(existing.text_sha256 != stage.text_sha256 for existing in bucket):
-                bucket.append(stage)
+            task_id, candidate = parsed_stage
+            bucket = grouped.setdefault(task_id, {}).setdefault(candidate.stage.kind, [])
+            if all(
+                existing.stage.text_sha256 != candidate.stage.text_sha256 for existing in bucket
+            ):
+                bucket.append(candidate)
 
     traces: list[WorkflowTrace] = []
     for task_id, kinds in grouped.items():
-        stages: list[WorkflowStage] = []
+        selected: list[_StageCandidate] = []
         conflicts = 0
         for kind in WORKFLOW_STAGE_ORDER:
             candidates = kinds.get(kind, [])
             if not candidates:
                 continue
             conflicts += max(0, len(candidates) - 1)
-            stages.append(max(candidates, key=_workflow_sort_key))
+            selected.append(max(candidates, key=lambda item: _workflow_sort_key(item.stage)))
+        stages = [item.stage for item in selected]
         present = {stage.kind for stage in stages}
         current = next((kind for kind in reversed(WORKFLOW_STAGE_ORDER) if kind in present), "")
         complete = all(kind in present for kind in WORKFLOW_STAGE_ORDER)
         evidence = tuple(
             EvidenceRef(
-                source_type="technocore_signed_stage",
-                payload_sha256=stage.text_sha256,
-                timestamp=stage.ts,
-                signer_did=stage.signer_did,
-                nonce=stage.nonce,
-                stage=stage.kind,
-                leaf_sha256=_evidence_leaf(task_id, stage),
+                schema=EVIDENCE_SCHEMA,
+                source_type=SOURCE_TYPE,
+                payload_sha256=item.evidence["payload_sha256"],
+                timestamp=item.evidence["timestamp"],
+                signer_did=item.evidence["signer_did"],
+                stage=item.evidence["stage"],
+                leaf_sha256=evidence_leaf(item.evidence),
+                locator_room_sha256=_sha256(item.evidence["locator"]["room"]),
+                locator_sequence=item.evidence["locator"]["sequence"],
             )
-            for stage in stages
+            for item in selected
         )
+        root = (
+            evidence_merkle_root(tuple(reference.leaf_sha256 for reference in evidence))
+            if complete
+            else ""
+        )
+        receipt_candidates = receipts.get(task_id, [])
+        receipt = max(
+            receipt_candidates,
+            key=lambda item: (timestamp_ms(item.timestamp), item.sequence),
+            default=None,
+        )
+        receipt_status = "not_observed"
+        if receipt is not None:
+            matched = bool(root) and receipt.evidence_merkle_root == root
+            receipt = ArtifactReceipt(
+                signer_did=receipt.signer_did,
+                timestamp=receipt.timestamp,
+                sequence=receipt.sequence,
+                artifact_sha256=receipt.artifact_sha256,
+                evidence_merkle_root=receipt.evidence_merkle_root,
+                evidence_schema=receipt.evidence_schema,
+                root_matches=matched,
+            )
+            receipt_status = "matched" if matched else ("mismatch" if root else "pending_bundle")
+            conflicts += max(
+                0,
+                len(
+                    {
+                        (item.evidence_merkle_root, item.artifact_sha256)
+                        for item in receipt_candidates
+                    }
+                )
+                - 1,
+            )
         traces.append(
             WorkflowTrace(
                 task_id=task_id,
@@ -475,13 +585,16 @@ def _collect_workflows(
                 started_at=next(
                     (stage.ts for stage in stages if stage.kind == "WORKFLOW_TASK"), ""
                 ),
-                updated_at=max((stage.ts for stage in stages), default=""),
+                updated_at=max(
+                    [stage.ts for stage in stages] + ([receipt.timestamp] if receipt else []),
+                    default="",
+                ),
                 stages=tuple(stages),
                 conflicts=conflicts,
                 evidence=evidence,
-                evidence_root=evidence_merkle_root(
-                    tuple(reference.leaf_sha256 for reference in evidence)
-                ),
+                evidence_root=root,
+                receipt=receipt,
+                receipt_status=receipt_status,
             )
         )
     traces.sort(key=lambda trace: (trace.updated_at, trace.task_id), reverse=True)
@@ -577,7 +690,7 @@ def collect_snapshot(
         "active_workflows": sum(workflow.status == "active" for workflow in workflows),
     }
     return Snapshot(
-        schema="technocore-atlas/v2",
+        schema="technocore-atlas/v3",
         observed_at=datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         base_url=base,
         rooms=tuple(rooms),
@@ -936,15 +1049,55 @@ def snapshot_from_dict(data: dict[str, Any]) -> Snapshot:
         if not isinstance(raw_workflow, dict):
             continue
         stages = tuple(
-            WorkflowStage(**raw_stage)
+            WorkflowStage(
+                kind=str(raw_stage.get("kind", "")),
+                seq=_int_or_none(raw_stage.get("seq")),
+                ts=str(raw_stage.get("ts", "")),
+                agent=str(raw_stage.get("agent", "")),
+                role=str(raw_stage.get("role", "")),
+                content_field=str(raw_stage.get("content_field", "")),
+                content=str(raw_stage.get("content", "")),
+                content_truncated=bool(raw_stage.get("content_truncated", False)),
+                text_sha256=str(raw_stage.get("text_sha256", "")),
+                signer_did=str(raw_stage.get("signer_did", "")),
+                nonce=str(raw_stage.get("nonce", "")),
+                payload_sha256=str(raw_stage.get("payload_sha256", "")),
+                timestamp_ms=int(raw_stage.get("timestamp_ms", 0) or 0),
+            )
             for raw_stage in raw_workflow.get("stages", [])
             if isinstance(raw_stage, dict)
         )
+        raw_algorithm = str(raw_workflow.get("evidence_algorithm", ""))
+        compatible_evidence = raw_algorithm == EVIDENCE_ALGORITHM
         evidence = tuple(
-            EvidenceRef(**raw_evidence)
+            EvidenceRef(
+                schema=str(raw_evidence.get("schema", "")),
+                source_type=str(raw_evidence.get("source_type", "")),
+                payload_sha256=str(raw_evidence.get("payload_sha256", "")),
+                timestamp=int(raw_evidence.get("timestamp", 0) or 0),
+                signer_did=str(raw_evidence.get("signer_did", "")),
+                stage=str(raw_evidence.get("stage", "")),
+                leaf_sha256=str(raw_evidence.get("leaf_sha256", "")),
+                locator_room_sha256=str(raw_evidence.get("locator_room_sha256", "")),
+                locator_sequence=int(raw_evidence.get("locator_sequence", 0) or 0),
+            )
             for raw_evidence in raw_workflow.get("evidence", [])
-            if isinstance(raw_evidence, dict)
+            if compatible_evidence
+            and isinstance(raw_evidence, dict)
+            and raw_evidence.get("schema") == EVIDENCE_SCHEMA
         )
+        raw_receipt = raw_workflow.get("receipt")
+        receipt = None
+        if isinstance(raw_receipt, dict):
+            receipt = ArtifactReceipt(
+                signer_did=str(raw_receipt.get("signer_did", "")),
+                timestamp=str(raw_receipt.get("timestamp", "")),
+                sequence=int(raw_receipt.get("sequence", 0) or 0),
+                artifact_sha256=str(raw_receipt.get("artifact_sha256", "")),
+                evidence_merkle_root=str(raw_receipt.get("evidence_merkle_root", "")),
+                evidence_schema=str(raw_receipt.get("evidence_schema", "")),
+                root_matches=bool(raw_receipt.get("root_matches", False)),
+            )
         workflows.append(
             WorkflowTrace(
                 task_id=str(raw_workflow.get("task_id", "")),
@@ -955,8 +1108,16 @@ def snapshot_from_dict(data: dict[str, Any]) -> Snapshot:
                 stages=stages,
                 conflicts=int(raw_workflow.get("conflicts", 0)),
                 evidence=evidence,
-                evidence_root=str(raw_workflow.get("evidence_root", "")),
-                evidence_algorithm=str(raw_workflow.get("evidence_algorithm", EVIDENCE_ALGORITHM)),
+                evidence_root=(
+                    str(raw_workflow.get("evidence_root", "")) if compatible_evidence else ""
+                ),
+                evidence_algorithm=(EVIDENCE_ALGORITHM if compatible_evidence else "legacy"),
+                receipt=receipt if compatible_evidence else None,
+                receipt_status=(
+                    str(raw_workflow.get("receipt_status", "not_observed"))
+                    if compatible_evidence
+                    else "legacy_snapshot"
+                ),
             )
         )
     return Snapshot(

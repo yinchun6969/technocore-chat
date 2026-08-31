@@ -92,7 +92,7 @@ def test_collects_verified_five_stage_workflow_with_allowlisted_content() -> Non
         workflow_rooms=("d-aizong", "mb-p-" + "a" * 32),
         fetcher=fetch,
     )
-    assert snapshot.schema == "technocore-atlas/v2"
+    assert snapshot.schema == "technocore-atlas/v3"
     assert len(snapshot.workflows) == 1
     workflow = snapshot.workflows[0]
     assert workflow.status == "complete"
@@ -108,7 +108,10 @@ def test_collects_verified_five_stage_workflow_with_allowlisted_content() -> Non
     assert workflow.evidence_algorithm == EVIDENCE_ALGORITHM
     assert len(workflow.evidence_root) == 64
     assert [item.stage for item in workflow.evidence] == list(contents)
-    assert all(item.source_type == "technocore_signed_stage" for item in workflow.evidence)
+    assert all(item.schema == "technocore.a2a/evidence-v1" for item in workflow.evidence)
+    assert all(item.source_type == "signed_room_message" for item in workflow.evidence)
+    assert all(item.timestamp > 0 and item.locator_sequence > 0 for item in workflow.evidence)
+    assert all(len(item.locator_room_sha256) == 64 for item in workflow.evidence)
     assert all(item.signer_did == WORKFLOW_SIGNERS[item.stage] for item in workflow.evidence)
     assert (
         snapshot_from_dict(snapshot.to_dict()).workflows[0].evidence_root == workflow.evidence_root
@@ -118,6 +121,77 @@ def test_collects_verified_five_stage_workflow_with_allowlisted_content() -> Non
     assert "unknown_private_field" not in exported
     assert "must not be exported" not in exported
     assert "mb-p-" not in exported
+
+
+def test_v552_artifact_receipt_matches_only_independently_derived_public_root() -> None:
+    kinds = list(WORKFLOW_SIGNERS)
+
+    def stage_row(index: int, kind: str) -> dict:
+        field = {
+            "WORKFLOW_TASK": "goal",
+            "BUILD_RESULT": "build_result",
+            "CHALLENGE": "challenge",
+            "REVISED_RESULT": "revised_result",
+            "COMPLETE": "final_summary",
+        }[kind]
+        payload = {"v": 1, "type": kind, "task_id": "wf-receipt", field: f"stage {index}"}
+        return {
+            "seq": index,
+            "ts": f"2026-08-30T00:0{index}:00Z",
+            "from": WORKFLOW_SIGNERS[kind],
+            "nonce": str(index),
+            "text": "A2A1 " + json.dumps(payload, separators=(",", ":"), sort_keys=True),
+        }
+
+    rows = [stage_row(index, kind) for index, kind in enumerate(kinds, 1)]
+
+    def stage_fetch(url: str, timeout: float) -> dict:
+        return {"messages": rows if "/r/d-aizong?" in url else [], "last_seq": len(rows)}
+
+    first = collect_snapshot(
+        "https://example.test",
+        workflow_rooms=("d-aizong", "d-ai2ai"),
+        fetcher=stage_fetch,
+    )
+    root = first.workflows[0].evidence_root
+    receipt_payload = {
+        "v": 1,
+        "type": "ARTIFACT_RECEIPT",
+        "task_id": "wf-receipt",
+        "artifact_sha256": "a" * 64,
+        "evidence_merkle_root": root,
+        "evidence_schema": "technocore.a2a/evidence-bundle-v1",
+    }
+    receipt = {
+        "seq": 6,
+        "ts": "2026-08-30T00:06:00Z",
+        "from": WORKFLOW_SIGNERS["CHALLENGE"],
+        "nonce": "6",
+        "text": "A2A1 " + json.dumps(receipt_payload, separators=(",", ":"), sort_keys=True),
+    }
+
+    def fetch(url: str, timeout: float) -> dict:
+        messages = [receipt] if "/r/d-ai2ai?" in url else rows
+        return {"messages": messages, "last_seq": len(messages)}
+
+    workflow = collect_snapshot(
+        "https://example.test",
+        workflow_rooms=("d-aizong", "d-ai2ai"),
+        fetcher=fetch,
+    ).workflows[0]
+    assert workflow.receipt_status == "matched"
+    assert workflow.receipt is not None and workflow.receipt.root_matches
+    assert workflow.receipt.artifact_sha256 == "a" * 64
+
+    receipt_payload["evidence_merkle_root"] = "b" * 64
+    receipt["text"] = "A2A1 " + json.dumps(receipt_payload, separators=(",", ":"), sort_keys=True)
+    mismatched = collect_snapshot(
+        "https://example.test",
+        workflow_rooms=("d-aizong", "d-ai2ai"),
+        fetcher=fetch,
+    ).workflows[0]
+    assert mismatched.receipt_status == "mismatch"
+    assert mismatched.receipt is not None and not mismatched.receipt.root_matches
 
 
 def test_evidence_merkle_root_is_deterministic_ordered_and_tamper_evident() -> None:

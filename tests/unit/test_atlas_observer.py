@@ -121,6 +121,7 @@ def test_config_resolves_only_required_pinned_workflow_rooms(tmp_path):
     )
     assert resolve_workflow_rooms(peers) == (
         "d-aizong",
+        "d-ai2ai",
         "mb-p-" + "a" * 32,
         "mb-p-" + "b" * 32,
     )
@@ -136,7 +137,31 @@ def test_config_deduplicates_existing_aizong_fallback_route(tmp_path):
             }
         )
     )
-    assert resolve_workflow_rooms(peers) == ("d-aizong", "mb-p-" + "a" * 32)
+    assert resolve_workflow_rooms(peers) == (
+        "d-aizong",
+        "d-ai2ai",
+        "mb-p-" + "a" * 32,
+    )
+
+
+def test_config_includes_optional_reviewer_receipt_route(tmp_path):
+    peers = tmp_path / "peers.json"
+    peers.write_text(
+        json.dumps(
+            {
+                WORKFLOW_SIGNERS["WORKFLOW_TASK"]: "mb-p-" + "a" * 32,
+                WORKFLOW_SIGNERS["BUILD_RESULT"]: "mb-p-" + "b" * 32,
+                WORKFLOW_SIGNERS["CHALLENGE"]: "mb-p-" + "c" * 32,
+            }
+        )
+    )
+    assert resolve_workflow_rooms(peers) == (
+        "d-aizong",
+        "d-ai2ai",
+        "mb-p-" + "a" * 32,
+        "mb-p-" + "b" * 32,
+        "mb-p-" + "c" * 32,
+    )
 
 
 def test_dashboard_is_mobile_html_and_escapes_workflow_content():
@@ -179,7 +204,8 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     assert 'class="logo-white"' in body and 'class="logo-cut"' in body
     assert 'class="logo-cyan"' in body and "#14bee1" in body
     assert "technocore" in body and "Atlas v3.9" in body
-    assert "A2A v5.4" in body
+    assert "A2A v5.5.2" in body
+    assert "AI2AI signed receipt matches" in body
     assert 'navy="#081631",cyan="#20e2f2",white="#f7f8ff"' in body
     assert 'px(x+5,fy,58,34,"#ff5b5b")' not in body
     assert "const STEP_MS=7600,MOVE_END=.36,WORK_END=.76" in body
@@ -463,6 +489,7 @@ def test_v3_upgrade_changes_only_atlas_ui_and_keeps_versioned_backup():
     assert "v2-to-v3" in script and "v3-to-v3.9" in script and "BACKUP=" in script
     assert "tools/atlas_dashboard.py" in script and "tools/atlas_observer.py" in script
     assert "tools/technocore_atlas.py" in script
+    assert "tools/atlas_evidence_v552.py" in script
     assert "technocore-a2a-rnd-v5.service" in script
     assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
     assert "technocore-collab.service" not in script
@@ -491,7 +518,9 @@ def test_task_status_cli_reports_stage_and_evidence(tmp_path):
         "#!/bin/sh\n"
         'printf \'%s\\n\' \'{"snapshot":{"workflows":[{"task_id":"wf-test-1",'
         '"status":"complete","current_stage":"COMPLETE","conflicts":0,'
-        '"evidence_algorithm":"sha256-merkle-v1","evidence_root":"abc123",'
+        '"evidence_algorithm":"technocore.a2a/evidence-bundle-v1","evidence_root":"abc123",'
+        '"receipt_status":"matched","receipt":{"evidence_merkle_root":"abc123",'
+        '"artifact_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},'
         '"evidence":[{}],"stages":[{"kind":"COMPLETE","agent":"Love8",'
         '"text_sha256":"0123456789abcdef9999"}]}]}}\'\n'
     )
@@ -505,7 +534,10 @@ def test_task_status_cli_reports_stage_and_evidence(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "status=complete" in result.stdout
+    assert "a2a_version=5.5.2" in result.stdout
     assert "evidence_root=abc123" in result.stdout
+    assert "receipt_status=matched" in result.stdout
+    assert "artifact_bytes_verified=false" in result.stdout
     assert "stage_1=COMPLETE agent=Love8 hash=0123456789abcdef" in result.stdout
 
 
@@ -525,8 +557,10 @@ def test_offline_demo_generates_reproducible_evidence_artifacts(tmp_path):
     assert result.returncode == 0, result.stderr
     evidence = json.loads((output / "evidence.json").read_text())
     assert evidence["leaf_count"] == 5
-    assert evidence["algorithm"] == "sha256-merkle-v1"
-    assert evidence["root"] == "daa8db6b53cb3e13f984683a95b625c95654d1fb8a845e49ce627d5cb559ce01"
+    assert evidence["schema"] == "technocore.a2a/evidence-bundle-v1"
+    assert evidence["algorithm"] == "technocore.a2a/evidence-bundle-v1"
+    assert evidence["root"] == "c08ee9aa0929a2079e727ec66b03b5623a2ba3de479f912f02aa9b34dc10c0a7"
+    assert evidence["receipt_status"] == "matched"
     assert (output / "snapshot.json").is_file()
     assert (output / "observer-state.json").is_file()
     assert "private_keys_read=0" in (output / "demo.log").read_text()

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Upgrade only an existing isolated Atlas v2 deployment to the v3 pixel UI.
-# Data collection and the v2 snapshot schema remain unchanged. Never restarts A2A/TG.
+# Upgrade only an existing isolated Atlas deployment to the v3.9 pixel UI.
+# Uses the A2A v5.5.2 evidence contract. Never restarts or changes A2A/TG.
 set -Eeuo pipefail
 umask 077
 SOURCE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -30,15 +30,16 @@ for target in /opt/technocore-atlas/tools /etc/technocore-atlas.conf /usr/local/
   [[ -e "$target" && ! -L "$target" ]] || fail "Existing Atlas v2 target is absent or unsafe: $target"
 done
 grep -q '^ATLAS_WORKFLOW_ROOMS=' /etc/technocore-atlas.conf || fail 'Atlas v2 workflow configuration is absent.'
-for source in tools/atlas_dashboard.py tools/atlas_observer.py tools/technocore_atlas.py; do
+for source in tools/atlas_dashboard.py tools/atlas_observer.py tools/atlas_evidence_v552.py tools/technocore_atlas.py; do
   [[ -f "$SOURCE_ROOT/$source" && ! -L "$SOURCE_ROOT/$source" ]] || fail "Missing v3 source: $source"
 done
 [[ -f "$SOURCE_ROOT/deploy/atlas/tc-atlas" && ! -L "$SOURCE_ROOT/deploy/atlas/tc-atlas" ]] || fail 'Missing v3 Atlas CLI.'
 grep -q 'TECHNOCORE // PIXEL QUEST' "$SOURCE_ROOT/tools/atlas_dashboard.py" || fail 'Source checkout is not Atlas v3.'
-compile_files "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py" "$SOURCE_ROOT/tools/technocore_atlas.py"
+compile_files "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py" "$SOURCE_ROOT/tools/atlas_evidence_v552.py" "$SOURCE_ROOT/tools/technocore_atlas.py"
 bash -n "$SOURCE_ROOT/deploy/atlas/tc-atlas"
 if cmp -s "$SOURCE_ROOT/tools/atlas_dashboard.py" /opt/technocore-atlas/tools/atlas_dashboard.py && \
   cmp -s "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/atlas_observer.py && \
+  cmp -s "$SOURCE_ROOT/tools/atlas_evidence_v552.py" /opt/technocore-atlas/tools/atlas_evidence_v552.py && \
   cmp -s "$SOURCE_ROOT/tools/technocore_atlas.py" /opt/technocore-atlas/tools/technocore_atlas.py && \
   cmp -s "$SOURCE_ROOT/deploy/atlas/tc-atlas" /usr/local/bin/tc-atlas; then
   echo 'ATLAS_V3_CURRENT_RELEASE_ALREADY_INSTALLED'
@@ -61,6 +62,11 @@ install -d -m 0700 "$BACKUP/tools" "$BACKUP/bin"
 cp -a /opt/technocore-atlas/tools/atlas_dashboard.py "$BACKUP/tools/"
 cp -a /opt/technocore-atlas/tools/atlas_observer.py "$BACKUP/tools/"
 cp -a /opt/technocore-atlas/tools/technocore_atlas.py "$BACKUP/tools/"
+if [[ -f /opt/technocore-atlas/tools/atlas_evidence_v552.py ]]; then
+  cp -a /opt/technocore-atlas/tools/atlas_evidence_v552.py "$BACKUP/tools/"
+else
+  : > "$BACKUP/atlas_evidence_v552.absent"
+fi
 cp -a /usr/local/bin/tc-atlas "$BACKUP/bin/"
 
 rollback() {
@@ -70,6 +76,7 @@ rollback() {
   systemctl stop technocore-atlas-refresh.timer technocore-atlas-web.service technocore-atlas-refresh.service >/dev/null 2>&1 || true
   install -d -m 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
   cp -a "$BACKUP/tools/." /opt/technocore-atlas/tools/
+  [[ ! -f "$BACKUP/atlas_evidence_v552.absent" ]] || rm -f /opt/technocore-atlas/tools/atlas_evidence_v552.py
   cp -a "$BACKUP/bin/tc-atlas" /usr/local/bin/tc-atlas
   chmod 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
   chmod 0644 /opt/technocore-atlas/tools/*.py
@@ -86,12 +93,13 @@ rollback() {
 trap rollback ERR
 systemctl stop technocore-atlas-refresh.timer technocore-atlas-web.service technocore-atlas-refresh.service
 install -d -m 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
-install -m 0644 "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py" "$SOURCE_ROOT/tools/technocore_atlas.py" /opt/technocore-atlas/tools/
+install -m 0644 "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_observer.py" "$SOURCE_ROOT/tools/atlas_evidence_v552.py" "$SOURCE_ROOT/tools/technocore_atlas.py" /opt/technocore-atlas/tools/
 install -m 0755 "$SOURCE_ROOT/deploy/atlas/tc-atlas" /usr/local/bin/tc-atlas
 chmod 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
 compile_files \
   /opt/technocore-atlas/tools/atlas_dashboard.py \
   /opt/technocore-atlas/tools/atlas_observer.py \
+  /opt/technocore-atlas/tools/atlas_evidence_v552.py \
   /opt/technocore-atlas/tools/technocore_atlas.py
 (
   cd /opt/technocore-atlas
@@ -103,5 +111,5 @@ systemctl is-active --quiet technocore-atlas-web.service
 systemctl is-active --quiet technocore-atlas-refresh.timer
 wait_for_dashboard 'TECHNOCORE // PIXEL QUEST'
 trap - ERR
-echo 'ATLAS_V3_9_UPGRADED: original audio-synced relay release-candidate dashboard=127.0.0.1:8787; A2A-v5.4; live polling=10s; collection=30s'
-echo "backup=$BACKUP; snapshot schema=v2; A2A/TG not restarted"
+echo 'ATLAS_V3_9_UPGRADED: original audio-synced relay dashboard=127.0.0.1:8787; A2A-v5.5.2 evidence/receipt compatible; live polling=10s; collection=30s'
+echo "backup=$BACKUP; snapshot schema=v3; A2A/TG not restarted"

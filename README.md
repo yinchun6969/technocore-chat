@@ -314,9 +314,10 @@ python scripts/verify_atlas_demo.py --output-dir /tmp/technocore-atlas-demo
 python -m tools.atlas_observer serve --state /tmp/technocore-atlas-demo/observer-state.json
 ```
 
-The generated evidence bundle includes a deterministic `sha256-merkle-v1` root. It is an
-observer-derived tamper-evident digest, not an independent Reviewer signature or a claim that the
-research conclusion is correct.
+The generated evidence bundle uses A2A v5.5.2
+`technocore.a2a/evidence-bundle-v1` canonicalization and domain-separated Merkle hashing. Atlas
+independently derives the public-stage root and can match it to AI2AI's signed
+`ARTIFACT_RECEIPT`; it does not read or independently verify local artifact bytes.
 
 ## Tests
 

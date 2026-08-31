@@ -52,7 +52,7 @@ done
 for unit in technocore-atlas-refresh.service technocore-atlas-refresh.timer technocore-atlas-web.service; do
   [[ "$(systemctl show "$unit" -p LoadState --value)" == not-found ]] || fail "Existing unit retained: $unit"
 done
-for source in tools/__init__.py tools/technocore_atlas.py tools/atlas_dashboard.py tools/atlas_config.py tools/atlas_observer.py deploy/atlas/tc-atlas deploy/atlas/technocore-atlas-refresh.service deploy/atlas/technocore-atlas-refresh.timer deploy/atlas/technocore-atlas-web.service; do
+for source in tools/__init__.py tools/atlas_evidence_v552.py tools/technocore_atlas.py tools/atlas_dashboard.py tools/atlas_config.py tools/atlas_observer.py deploy/atlas/tc-atlas deploy/atlas/technocore-atlas-refresh.service deploy/atlas/technocore-atlas-refresh.timer deploy/atlas/technocore-atlas-web.service; do
   [[ -f "$SOURCE_ROOT/$source" && ! -L "$SOURCE_ROOT/$source" ]] || fail "Missing source: $source"
 done
 (
@@ -87,7 +87,7 @@ on_error() {
 }
 trap on_error ERR
 install -d -m 0755 /opt/technocore-atlas /opt/technocore-atlas/tools
-install -m 0644 "$SOURCE_ROOT/tools/__init__.py" "$SOURCE_ROOT/tools/technocore_atlas.py" "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_config.py" "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/
+install -m 0644 "$SOURCE_ROOT/tools/__init__.py" "$SOURCE_ROOT/tools/atlas_evidence_v552.py" "$SOURCE_ROOT/tools/technocore_atlas.py" "$SOURCE_ROOT/tools/atlas_dashboard.py" "$SOURCE_ROOT/tools/atlas_config.py" "$SOURCE_ROOT/tools/atlas_observer.py" /opt/technocore-atlas/tools/
 printf 'ATLAS_ROOM=%s\nATLAS_WORKFLOW_ROOMS=%s\n' "$ATLAS_ROOM" "$ATLAS_WORKFLOW_ROOMS" > /etc/technocore-atlas.conf
 chmod 0600 /etc/technocore-atlas.conf
 install -m 0755 "$SOURCE_ROOT/deploy/atlas/tc-atlas" /usr/local/bin/tc-atlas

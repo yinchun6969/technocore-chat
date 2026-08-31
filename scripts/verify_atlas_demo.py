@@ -43,38 +43,69 @@ def _rows() -> list[dict[str, object]]:
 
 def build_artifacts(output_dir: Path) -> dict[str, object]:
     rows = _rows()
+    receipt_rows: list[dict[str, object]] = []
 
     def fetch(url: str, timeout: float) -> dict[str, object]:
         del timeout
-        return (
-            {"last_seq": 0, "messages": []}
-            if "/r/demo-public?" in url
-            else {
-                "last_seq": len(rows),
-                "messages": rows,
-            }
-        )
+        if "/r/demo-public?" in url:
+            messages: list[dict[str, object]] = []
+        elif "/r/d-ai2ai?" in url:
+            messages = receipt_rows
+        else:
+            messages = rows
+        return {"last_seq": len(messages), "messages": messages}
 
     snapshot = collect_snapshot(
         "https://example.test",
         selected_rooms=("demo-public",),
-        workflow_rooms=("d-aizong",),
+        workflow_rooms=("d-aizong", "d-ai2ai"),
         fetcher=fetch,
     )
     workflow = snapshot.workflows[0]
     if workflow.status != "complete" or len(workflow.evidence) != len(STAGES):
         raise RuntimeError("offline workflow did not complete")
+    receipt_payload = {
+        "v": 1,
+        "type": "ARTIFACT_RECEIPT",
+        "task_id": TASK_ID,
+        "artifact_sha256": "a" * 64,
+        "evidence_merkle_root": workflow.evidence_root,
+        "evidence_schema": "technocore.a2a/evidence-bundle-v1",
+    }
+    receipt_rows.append(
+        {
+            "seq": 6,
+            "ts": "2026-01-01T00:06:00Z",
+            "from": WORKFLOW_SIGNERS["CHALLENGE"],
+            "nonce": "6",
+            "text": "A2A1 " + json.dumps(receipt_payload, separators=(",", ":"), sort_keys=True),
+        }
+    )
+    snapshot = collect_snapshot(
+        "https://example.test",
+        selected_rooms=("demo-public",),
+        workflow_rooms=("d-aizong", "d-ai2ai"),
+        fetcher=fetch,
+    )
+    workflow = snapshot.workflows[0]
+    if workflow.receipt_status != "matched":
+        raise RuntimeError("offline receipt did not match independently derived root")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     snapshot_data = snapshot.to_dict()
     bundle = {
-        "schema": "technocore-atlas-evidence/v1",
+        "schema": "technocore.a2a/evidence-bundle-v1",
         "task_id": workflow.task_id,
         "algorithm": workflow.evidence_algorithm,
         "root": workflow.evidence_root,
         "leaf_count": len(workflow.evidence),
         "evidence": [item.__dict__ for item in workflow.evidence],
-        "claim": "observer-derived digest; not an independent Reviewer signature proof",
+        "receipt_status": workflow.receipt_status,
+        "receipt": workflow.receipt.__dict__ if workflow.receipt else None,
+        "claim": (
+            "public-stage root independently derived and matched to the signed receipt; "
+            "local artifact bytes not read or verified by Atlas"
+        ),
     }
     observer_state = {
         "snapshot": snapshot_data,
@@ -102,6 +133,8 @@ def build_artifacts(output_dir: Path) -> dict[str, object]:
                 f"stages={len(workflow.stages)}",
                 f"evidence_algorithm={workflow.evidence_algorithm}",
                 f"evidence_root={workflow.evidence_root}",
+                f"receipt_status={workflow.receipt_status}",
+                "artifact_bytes_verified=false",
                 "network_writes=0",
                 "private_keys_read=0",
             ]
