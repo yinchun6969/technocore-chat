@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 umask 077
 
-SOURCE_REF="29d72c384722169edadb0a7f5839ace92d161a24"
-SOURCE_SHA256="1b90877019b987dda96fc0edbf84ba77e4582d96dec56be61abcaacfbae12b2c"
+SOURCE_REF="808a903bf68154ad17812e9d806a0a30e82e5c53"
+SOURCE_SHA256="502cbab3132c3c5ec825bbd981b27002a85075e0a2884e37baa98df0b61ef655"
 SOURCE_URL="https://raw.githubusercontent.com/yinchun6969/technocore-chat/$SOURCE_REF/deploy/a2a-v5/repair-love8-outbound-dedupe-v3.7.py"
 MODE="check"
 
@@ -18,7 +18,7 @@ while (($#)); do
 done
 
 [[ $EUID -eq 0 ]] || die "run as root on Love8 Scout"
-for command in curl sha256sum python3 systemctl; do
+for command in curl sha256sum python3; do
   command -v "$command" >/dev/null || die "$command is required"
 done
 [[ -f /opt/technocore-collab/bin/collab.py && -f /opt/technocore-collab/.env ]] || \
@@ -39,10 +39,19 @@ echo "preserved=did,private-key,mailbox,peers,cursor,nonces,provenance,workflow-
 [[ $MODE == apply ]] || { echo "CHECK_ONLY: no files, services or state changed"; exit 0; }
 
 python3 "$stage/repair.py" --apply
-systemctl is-active --quiet technocore-collab.service
+if command -v systemctl >/dev/null 2>&1 && \
+   [[ "$(systemctl show -p LoadState --value technocore-collab.service 2>/dev/null || true)" == loaded ]]; then
+  systemctl is-active --quiet technocore-collab.service
+  runtime=systemd
+elif command -v tc-collab-process-status >/dev/null 2>&1 && \
+     tc-collab-process-status | grep -q 'runner: ACTIVE'; then
+  runtime=process-runner
+else
+  die "Love8 runtime is not active after repair"
+fi
 grep -Fq '# LOVE8_OUTBOUND_DEDUPE_RETRY_V37' /opt/technocore-collab/bin/collab.py
 grep -Fq "OUTBOUND_DEDUPE_UNAVAILABLE: retry later; no stage sent" /opt/technocore-collab/bin/collab.py
 
 echo "LOVE8_OUTBOUND_V37_ACCEPTED=INSTALL_OK"
-echo "service=active"
+echo "runtime=$runtime; active=true"
 echo "next=start a new signed workflow; the failed invocation created no task"

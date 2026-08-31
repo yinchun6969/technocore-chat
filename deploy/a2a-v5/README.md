@@ -121,8 +121,8 @@ an unavailable duplicate check as permission to send; after five failed reads
 it stops with `OUTBOUND_DEDUPE_UNAVAILABLE` and states that no stage was sent.
 
 The installer is pinned to an immutable commit and SHA-256, targets only the
-Love8 Scout role, preserves the prior service state, and provides a
-digest-guarded rollback:
+Love8 Scout role, preserves either its systemd service or legacy process-runner
+state, and provides a digest-guarded rollback:
 
 ```bash
 bash deploy/a2a-v5/install-love8-outbound-dedupe-v3.7.sh --check
