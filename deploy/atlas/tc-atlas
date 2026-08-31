@@ -40,10 +40,26 @@ print(f"status={workflow.get('"'"'status'"'"', '"'"'unknown'"'"')}")
 print(f"current_stage={workflow.get('"'"'current_stage'"'"', '"'"'none'"'"')}")
 print(f"conflicts={int(workflow.get('"'"'conflicts'"'"', 0) or 0)}")
 evidence = workflow.get("evidence", [])
+stages = workflow.get("stages", [])
+has_signer_metadata = bool(stages) and all(
+    stage.get("signer_did") and stage.get("nonce") for stage in stages
+)
+evidence_root = workflow.get("evidence_root", "") or ""
+if evidence and evidence_root:
+    evidence_status = "ready"
+    evidence_reason = "observer-derived public signed-stage digest"
+elif stages and not has_signer_metadata:
+    evidence_status = "awaiting_fresh_snapshot"
+    evidence_reason = "retained pre-evidence snapshot lacks signer DID/nonce; refresh after upstream recovery"
+else:
+    evidence_status = "unavailable"
+    evidence_reason = "no complete evidence references observed"
 print(f"evidence={len(evidence)}")
 print(f"evidence_algorithm={workflow.get('"'"'evidence_algorithm'"'"', '"'"'none'"'"')}")
-print(f"evidence_root={workflow.get('"'"'evidence_root'"'"', '"'"'none'"'"') or '"'"'none'"'"'}")
-for index, stage in enumerate(workflow.get("stages", []), 1):
+print(f"evidence_root={evidence_root or '"'"'none'"'"'}")
+print(f"evidence_status={evidence_status}")
+print(f"evidence_reason={evidence_reason}")
+for index, stage in enumerate(stages, 1):
     print(
         f"stage_{index}={stage.get('"'"'kind'"'"', '"'"'unknown'"'"')} "
         f"agent={stage.get('"'"'agent'"'"', '"'"'unknown'"'"')} "

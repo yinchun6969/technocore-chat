@@ -224,6 +224,8 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     assert "flagProgress" in body
     assert "Deterministic evidence digest" in body
     assert "Observer-derived digest" in body
+    assert "awaiting fresh signer metadata" in body
+    assert "等待新鲜签名元数据" in body
     assert "wf.evidence_root" in body
     assert 'make("code","stage-proof"' in body
     assert "@media(min-width:900px)" in body
