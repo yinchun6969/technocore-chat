@@ -2,6 +2,7 @@
 """Offline tests for Love8 transient outbound duplicate-check recovery."""
 
 import importlib.util
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -116,6 +117,26 @@ class Love8OutboundTests(unittest.TestCase):
             repair.rollback(backup, target, service)
             self.assertEqual(target.read_bytes(), original)
             self.assertEqual(state.read_text(), "97")
+
+    def test_runtime_falls_back_to_active_process_runner(self):
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            if argv[:2] == ["systemctl", "show"]:
+                return subprocess.CompletedProcess(argv, 1, "", "not found")
+            if argv == ["tc-collab-process-status"]:
+                return subprocess.CompletedProcess(argv, 0, "runner: ACTIVE pid=42\n", "")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        runtime = repair.Runtime(run, lambda command: "/usr/local/bin/" + command,
+                                 lambda seconds: None)
+        self.assertTrue(runtime.active())
+        self.assertEqual(runtime.mode, "runner")
+        runtime.stop()
+        runtime.start()
+        self.assertIn(["tc-collab-stop"], calls)
+        self.assertIn(["tc-collab-start"], calls)
 
 
 if __name__ == "__main__":
