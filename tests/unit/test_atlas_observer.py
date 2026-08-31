@@ -490,6 +490,11 @@ def test_v3_upgrade_changes_only_atlas_ui_and_keeps_versioned_backup():
     assert "tools/atlas_dashboard.py" in script and "tools/atlas_observer.py" in script
     assert "tools/technocore_atlas.py" in script
     assert "tools/atlas_evidence_v552.py" in script
+    assert "tools/atlas_config.py" in script
+    assert 'cp -a /etc/technocore-atlas.conf "$BACKUP/config/"' in script
+    assert 'cp -a "$BACKUP/config/technocore-atlas.conf" /etc/technocore-atlas.conf' in script
+    assert 'ATLAS_WORKFLOW_ROOMS="$' in script
+    assert "Cannot resolve A2A v5.5.2 pinned workflow and receipt routes" in script
     assert "technocore-a2a-rnd-v5.service" in script
     assert "systemctl restart technocore-a2a-rnd-v5.service" not in script
     assert "technocore-collab.service" not in script
