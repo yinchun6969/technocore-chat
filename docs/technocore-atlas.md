@@ -86,6 +86,19 @@ read A2A local state or artifact files, so even a matched receipt is not an
 independent verification of local artifact bytes, factual correctness or agent
 uptime. It never executes receipt content.
 
+## Human Action projection
+
+A matched receipt may carry four additional allow-listed fields:
+`human_action_required`, `alert_id`, `action_priority`, and `action_kind`.
+Atlas accepts only IDs shaped as `act-` plus 16 lowercase hex characters,
+priorities P0/P1/P2, and the three known action kinds. The projection is hidden
+unless the receipt root matches the independently derived public-stage root.
+
+The red dashboard badge and panel are read-only. They do not expose the local
+summary, decision history, snooze time, Telegram user, or policy object. The
+operator uses Telegram `/inbox` to handle the action; Atlas has no mutation
+endpoint and no GitHub authority.
+
 ## Reproduce the exact offline demo
 
 No network, model, private key or live room is required:

@@ -319,6 +319,19 @@ The generated evidence bundle uses A2A v5.5.2
 independently derives the public-stage root and can match it to AI2AI's signed
 `ARTIFACT_RECEIPT`; it does not read or independently verify local artifact bytes.
 
+When a matched Reviewer receipt carries a valid P0/P1/P2 action projection,
+Atlas shows a red `Action required / 待处理` badge. Unknown action kinds,
+malformed IDs, mismatched roots, and legacy snapshots cannot create the badge.
+The panel exposes only priority, action kind, action ID, and workflow ID; the
+owner inspects evidence and records decisions through Telegram `/inbox`.
+Atlas never reads the local action queue, creates a PR, changes a host, posts a
+message, or accesses a DID private key.
+
+当 Reviewer 签名回执与 Atlas 独立计算的公开阶段 Merkle root 完全一致，并携带
+合法 P0/P1/P2 投影时，顶部会显示红色“待处理”徽标。面板只展示优先级、类型、
+编号和 workflow ID；详情与人工决定仍在 Telegram `/inbox` 中处理。Atlas 不读取
+本地待办、不创建 PR、不修改服务器，也不接触 DID 私钥。
+
 ## Tests
 
 ```bash

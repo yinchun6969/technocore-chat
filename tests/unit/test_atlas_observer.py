@@ -235,6 +235,12 @@ def test_dashboard_is_mobile_html_and_escapes_workflow_content():
     assert "copy.teamMove(owner)" in body
     assert 'id="observation-status"' in body
     assert 'id="upstream-status"' in body
+    assert 'id="action-alert"' in body
+    assert 'id="action-center"' in body
+    assert "function actionable(data)" in body
+    assert 'wf.receipt_status!=="matched"' in body
+    assert "Atlas never creates a PR or changes a host" in body
+    assert "请在 Telegram 使用 /inbox" in body
     assert "updateObservation(data.observation)" in body
     assert "Last verified snapshot" in body
     assert 'badge.textContent="● LIVE"' in body
