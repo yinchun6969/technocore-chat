@@ -37,14 +37,14 @@ Telegram 的批准不会自动创建 PR、修改服务器、公开发帖或上�
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/yinchun6969/technocore-chat/RELEASE_REF/deploy/a2a-v5/install-human-action-center-v1.sh \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/a5eb924c9ddfbdc1d662d247b13f330f3b4bea85/deploy/a2a-v5/install-human-action-center-v1.sh \
   -o /root/install-human-action-center-v1.sh
 bash /root/install-human-action-center-v1.sh --check
 bash /root/install-human-action-center-v1.sh --apply
 ```
 
-发布合并后请把 `RELEASE_REF` 换成发布提交。安装器会再次下载固定版本组件，逐个核对
-SHA-256，在任何写入前组合 Telegram 功能并运行测试。失败会自动恢复原代码和两个服务
+安装器会再次下载固定版本组件，逐个核对 SHA-256，在任何写入前组合 Telegram 功能
+并运行测试。失败会自动恢复原代码和两个服务
 的原始启停状态；DID、私钥、mailbox、room、cursor、nonce、证据档案和行动队列不会被
 备份覆盖、删除或上传。
 
@@ -74,14 +74,13 @@ installer from a pinned release commit. Run the read-only check before apply:
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/yinchun6969/technocore-chat/RELEASE_REF/deploy/a2a-v5/install-human-action-center-v1.sh \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/a5eb924c9ddfbdc1d662d247b13f330f3b4bea85/deploy/a2a-v5/install-human-action-center-v1.sh \
   -o /root/install-human-action-center-v1.sh
 bash /root/install-human-action-center-v1.sh --check
 bash /root/install-human-action-center-v1.sh --apply
 ```
 
-Replace `RELEASE_REF` with the release commit after merge. Before any write,
-the installer verifies every SHA-256, composes the canonical Telegram source,
+Before any write, the installer verifies every SHA-256, composes the canonical Telegram source,
 and runs its regressions. A failed apply restores the prior code and original
 service states. DID keys, rooms, mailboxes, cursors, nonces, evidence artifacts,
 and the local action queue are never rewound, deleted, or uploaded.
