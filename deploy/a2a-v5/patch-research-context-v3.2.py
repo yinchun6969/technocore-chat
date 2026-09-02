@@ -156,6 +156,7 @@ def patched_telegram(source):
 
 def NEXT_FUNCTION()'''.replace("NEXT_FUNCTION", next_function))
     source = replace_once(source, '    for stream_name, stream_path in (', '''    # One subject-rich snapshot after migration, without rewinding old offsets.
+    director = read_json(DIRECTOR_STATE, {})
     card = research_context.current(director) if isinstance(director, dict) else {}
     if card:
         card_key = "research_card_v32|" + str(card.get("request_id", ""))
