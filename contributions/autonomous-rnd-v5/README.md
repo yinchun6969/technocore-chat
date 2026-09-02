@@ -129,3 +129,8 @@ sanitized receipt projection as a read-only `Action required` badge.
 Approving an action never creates a PR or writes to GitHub, a server, or a
 public room. The complete bilingual operating guide is in
 [HUMAN_ACTION_CENTER.md](HUMAN_ACTION_CENTER.md).
+
+The standalone installer is
+[`install-human-action-center-v1.sh`](../../deploy/a2a-v5/install-human-action-center-v1.sh).
+Always run `--check` first; `--apply` is transaction-safe and preserves the
+existing DID, private key, rooms, mailboxes, evidence, cursors, and action queue.
