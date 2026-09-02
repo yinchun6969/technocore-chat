@@ -34,6 +34,8 @@ jobs:
       - name: Deterministic Evidence and Merkle unit tests
         run: |
           python3 deploy/a2a-v5/test_evidence_v55.py
+          python3 deploy/a2a-v5/test_human_action_center_v1.py
+          python3 deploy/a2a-v5/test_telegram_notifications_v53.py
 
       - name: Offline integration and E2E artifact
         run: |
@@ -51,9 +53,11 @@ jobs:
           python3 deploy/a2a-v5/test_verifiable_evidence_installer_v55.py
           python3 deploy/a2a-v5/test_verifiable_evidence_installer_v551.py
           python3 deploy/a2a-v5/test_verifiable_evidence_installer_v552.py
+          python3 deploy/a2a-v5/test_human_action_center_installer_v1.py
           bash -n deploy/a2a-v5/install-verifiable-evidence-v5.5.1.sh
           bash -n deploy/a2a-v5/install-verifiable-evidence-v5.5.2.sh
           bash -n deploy/a2a-v5/install-existing-did-quickstart-v1.sh
+          bash -n deploy/a2a-v5/install-human-action-center-v1.sh
 
       - name: Standalone DID onboarding wizard
         run: |

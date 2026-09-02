@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 import unittest
 from pathlib import Path
@@ -20,12 +19,15 @@ class VerifiableEvidenceV552InstallerTests(unittest.TestCase):
     def test_source_is_immutable_and_payload_hashes_match(self):
         self.assertIsNotNone(re.search(r'^SOURCE_REF="[0-9a-f]{40}"$', self.text, re.M))
         pairs = dict(re.findall(r'^  \[([^]]+)\]="([0-9a-f]{64})"$', self.text, re.M))
+        # v5.5.2 remains an immutable historical installer. New releases may
+        # evolve the working-tree Curator without silently changing what this
+        # already-published installer downloads.
         expected = {
-            name: hashlib.sha256((HERE / name).read_bytes()).hexdigest()
-            for name in (
-                "autonomous-curator-v5.py", "evidence_v55.py", "task_status_v55.py",
-                "demo_v55.py", "patch-verified-brief-v5.5.1.py",
-            )
+            "autonomous-curator-v5.py": "10b6db42538c754ba4a9fde906321d4ca437ced5470767a7347941bc6f49a48d",
+            "evidence_v55.py": "64e361389ff7a247f897f6536de89c640096c5e01b3d236e96d43a5ea1664b9e",
+            "task_status_v55.py": "38819807b98da67e01c4841a2939c1898294d4e92e2f541fa7a4e66c0b4a48be",
+            "demo_v55.py": "a10e20e68095eeb0d035dfb5139bf00e71055332b148b9c9fd63e8b39b63171f",
+            "patch-verified-brief-v5.5.1.py": "770909c5646d47086b142a52f802711eaef158b4facc60a15a3766d771638294",
         }
         self.assertEqual(pairs, expected)
 

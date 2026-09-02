@@ -36,7 +36,7 @@ class Installer(unittest.TestCase):
 import pathlib, shutil, sys
 args = sys.argv[1:]
 url = args[args.index('-o') - 1]
-assert '/3f5dd06df0784f8f0919265e49c055a5fd042fea/deploy/a2a-v5/' in url
+assert '/f2ec3985f3ec0fdcf797f330cdc3cb214b0a0bc0/deploy/a2a-v5/' in url
 name = url.rsplit('/', 1)[1]
 with open({str(self.trace)!r}, 'a') as f: f.write('download:' + name + '\\n')
 shutil.copyfile(pathlib.Path({str(HERE)!r}) / name, args[args.index('-o') + 1])

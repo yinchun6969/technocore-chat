@@ -137,7 +137,12 @@ def patched_telegram(source):
     "research_reply_linked": "收到关联本研究的外部回复（待核验）",
     "research_reply_read_error": "读取研究回复失败，稍后重试",
     "research_no_candidate": "本次没有新的有来源候选，未伪造 Bug",''')
-    source = replace_once(source, '    return "\\n".join(lines)\n\n\ndef notify_events()', '''    card = research_context.lookup_event(row)
+    event_anchor = '    return "\\n".join(lines)\n\n\ndef notify_events()'
+    next_function = "notify_events"
+    if event_anchor not in source:
+        event_anchor = '    return "\\n".join(lines)\n\n\ndef load_action_center()'
+        next_function = "load_action_center"
+    source = replace_once(source, event_anchor, '''    card = research_context.lookup_event(row)
     if not stage:
         stage = {"workflow_build_result": "BUILD_RESULT", "workflow_challenge": "CHALLENGE",
                  "workflow_challenge_recovered": "CHALLENGE", "workflow_revised_result": "REVISED_RESULT",
@@ -149,8 +154,9 @@ def patched_telegram(source):
     return "\\n".join(lines)
 
 
-def notify_events()''')
+def NEXT_FUNCTION()'''.replace("NEXT_FUNCTION", next_function))
     source = replace_once(source, '    for stream_name, stream_path in (', '''    # One subject-rich snapshot after migration, without rewinding old offsets.
+    director = read_json(DIRECTOR_STATE, {})
     card = research_context.current(director) if isinstance(director, dict) else {}
     if card:
         card_key = "research_card_v32|" + str(card.get("request_id", ""))

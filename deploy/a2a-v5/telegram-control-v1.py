@@ -27,6 +27,8 @@ DIRECTOR_STATE = ROOT / "rnd-v5-state" / "director.json"
 CURATOR_STATE = ROOT / "rnd-v5-state" / "curator.json"
 MANUAL_QUEUE = ROOT / "rnd-v5-state" / "manual-requests.jsonl"
 ARTIFACTS = ROOT / "rnd-v5-artifacts"
+ACTION_QUEUE = ROOT / "rnd-v5-state" / "human-actions.json"
+ACTION_MODULE = ROOT / "rnd-v5" / "human_action_center_v1.py"
 DIRECTOR = ROOT / "rnd-v5" / "autonomous-rnd-v5.py"
 AGENT_RUNTIME = ROOT / "bin" / "agent.py"
 PYTHON = ROOT / "venv" / "bin" / "python"
@@ -34,6 +36,7 @@ PUBLIC_POST = Path("/usr/local/bin/tc-a2a-public-post-send")
 DOCS = "https://github.com/yinchun6969/technocore-chat/tree/a2a-autonomous-rnd-v5/contributions/autonomous-rnd-v5"
 MAX_REPLY = 3900
 _AGENT = None
+_ACTIONS = None
 
 
 def read_kv(path: Path) -> dict[str, str]:
@@ -64,6 +67,7 @@ ALLOWED = {
     if item.strip().isdigit()
 }
 POLL = max(10, min(45, int(os.environ.get("TG_POLL_SECONDS", "25") or 25)))
+DAILY_DIGEST_UTC_HOUR = min(23, max(0, int(os.environ.get("TG_DAILY_DIGEST_UTC_HOUR", "12") or 12)))
 API = "https://api.telegram.org/bot" + TOKEN
 
 if not TOKEN:
@@ -117,14 +121,18 @@ def api(method: str, payload: dict | None = None) -> object:
         raise RuntimeError(f"Telegram {method} failed: {type(exc).__name__}") from exc
 
 
-def send(chat_id: int, text: str) -> None:
+def send(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
     text = safe_text(text, 12000) or "没有可显示的内容。"
-    for start in range(0, len(text), MAX_REPLY):
-        api("sendMessage", {
+    chunks = [text[start:start + MAX_REPLY] for start in range(0, len(text), MAX_REPLY)]
+    for index, chunk in enumerate(chunks):
+        payload = {
             "chat_id": chat_id,
-            "text": text[start:start + MAX_REPLY],
+            "text": chunk,
             "disable_web_page_preview": True,
-        })
+        }
+        if reply_markup and index == len(chunks) - 1:
+            payload["reply_markup"] = reply_markup
+        api("sendMessage", payload)
 
 
 
@@ -161,11 +169,24 @@ NOTIFY_LABELS = {
     "github_pr_created": "GitHub PR 已创建",
     "github_pr_ci_passed": "GitHub PR 的 CI 已通过",
     "github_pr_ci_failed": "GitHub PR 的 CI 未通过",
+    "human_action_created": "发现需要人工处理的研究结果",
 }
 
 
 def event_message(row: dict) -> str | None:
     event = str(row.get("event", "")).strip()
+    if event in {
+        "rnd_objective_selected", "scheduler_request_sent", "scheduler_delivery_wait",
+        "workflow_stage_observed", "director_wait", "active_request_expired",
+        "workflow_active_expired", "active_request_cleared", "workflow_task_received",
+        "workflow_build_result", "workflow_challenge", "workflow_challenge_recovered",
+        "workflow_revised_result", "workflow_revised_result_recovered",
+        "workflow_complete_received", "rnd_artifact_created", "artifact_ready",
+        "evidence_room_error", "rnd_discussion_posted", "discussion_posted",
+        "discussion_room_bootstrap_error", "discussion_topic_post_error",
+        "discussion_room_read_error",
+    }:
+        return None
     label = NOTIFY_LABELS.get(event)
     if not label:
         return None
@@ -173,6 +194,30 @@ def event_message(row: dict) -> str | None:
     request_id = compact(row.get("request_id"), 120)
     goal = compact(row.get("goal"), 700)
     error = compact(row.get("error"), 500)
+    if event == "human_action_created":
+        priority = compact(row.get("priority"), 8)
+        heading = {
+            "P0": "🛑【P0 紧急·需要你确认】",
+            "P1": "🚨【P1 PR 候选·需要你处理】",
+            "P2": "⚠️【P2 需要你决定】",
+        }.get(priority, "⚠️【需要你处理】")
+        lines = [heading]
+        alert_id = compact(row.get("alert_id"), 80)
+        action_kind = compact(row.get("action_kind"), 80)
+        summary = safe_text(compact(row.get("summary"), 500), 500)
+        score = compact(row.get("cross_validation_score"), 20)
+        if alert_id:
+            lines.append(f"编号：{alert_id}")
+        if action_kind:
+            lines.append(f"类型：{action_kind}")
+        if summary:
+            lines.append(f"摘要：{summary}")
+        if score:
+            lines.append(f"交叉验证：{score}")
+        if workflow:
+            lines.append(f"workflow: {workflow}")
+        lines.append("安全边界：按钮只记录你的决定，不会自动写 GitHub、服务器或公开房间。")
+        return "\n".join(lines)
     lines = [f"🔔 AI2AI 自主研究进度\n阶段：{label}"]
     if workflow:
         lines.append(f"workflow: {workflow}")
@@ -213,6 +258,123 @@ def event_message(row: dict) -> str | None:
     return "\n".join(lines)
 
 
+def load_action_center():
+    global _ACTIONS
+    if _ACTIONS is not None:
+        return _ACTIONS
+    spec = importlib.util.spec_from_file_location("telegram_human_action_v1", ACTION_MODULE)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("human action center is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _ACTIONS = module
+    return module
+
+
+def action_keyboard(alert_id: str, kind: str) -> dict:
+    approval = "批准准备 PR" if kind == "PR_CANDIDATE" else "记录批准"
+    return {"inline_keyboard": [
+        [
+            {"text": "👀 已查看", "callback_data": f"act:ack:{alert_id}"},
+            {"text": "🔎 查看详情", "callback_data": f"act:detail:{alert_id}"},
+        ],
+        [
+            {"text": f"✅ {approval}", "callback_data": f"act:approve:{alert_id}"},
+            {"text": "⏰ 6 小时后", "callback_data": f"act:snooze:{alert_id}"},
+        ],
+        [{"text": "🗂 关闭", "callback_data": f"act:resolve:{alert_id}"}],
+    ]}
+
+
+def send_action_alert(chat_id: int, row: dict, message: str) -> None:
+    alert_id = compact(row.get("alert_id"), 80)
+    kind = compact(row.get("action_kind"), 80)
+    markup = action_keyboard(alert_id, kind) if alert_id.startswith("act-") else None
+    send(chat_id, message, markup)
+
+
+def find_action(alert_id: str) -> dict:
+    value = load_action_center().load(ACTION_QUEUE)
+    action = value.get("actions", {}).get(alert_id) if isinstance(value, dict) else None
+    if not isinstance(action, dict):
+        raise RuntimeError("找不到该待办")
+    return action
+
+
+def action_detail(alert_id: str) -> str:
+    action = find_action(alert_id)
+    return (
+        f"{action.get('priority')} 待办详情\n"
+        f"编号：{action.get('alert_id')}\n"
+        f"状态：{action.get('status')}\n"
+        f"类型：{action.get('kind')}\n"
+        f"workflow: {action.get('workflow_id')}\n"
+        f"交叉验证：{action.get('cross_validation_score')}\n"
+        f"摘要：{safe_text(str(action.get('summary', '')), 1000)}\n"
+        f"evidence root: {action.get('evidence_merkle_root')}\n\n"
+        "安全边界：这里的批准仅记录人工意图；不会自动创建 PR、修改服务器或公开发布。"
+    )
+
+
+def action_inbox() -> str:
+    rows = load_action_center().active(ACTION_QUEUE, include_snoozed=True)
+    counts = load_action_center().counts(ACTION_QUEUE)
+    lines = [
+        f"🚨 人工待办：{counts['total']}（P0 {counts['P0']} / P1 {counts['P1']} / P2 {counts['P2']}）"
+    ]
+    if not rows:
+        lines.append("目前没有待处理警报。")
+    for action in rows[:12]:
+        lines.append(
+            f"\n{action.get('priority')} · {action.get('status')} · {action.get('alert_id')}\n"
+            f"{safe_text(str(action.get('summary', '')), 240)}\n"
+            f"workflow: {action.get('workflow_id')}"
+        )
+    if len(rows) > 12:
+        lines.append(f"\n另有 {len(rows) - 12} 条；用 /alert act-ID 查看。")
+    return "\n".join(lines)
+
+
+def change_action(alert_id: str, operation: str, user_id: str) -> str:
+    action = find_action(alert_id)
+    state = {
+        "ack": "acknowledged", "approve": "approved",
+        "snooze": "snoozed", "resolve": "resolved", "reject": "rejected",
+    }.get(operation)
+    if not state:
+        raise RuntimeError("不支持的待办操作")
+    if operation == "approve" and action.get("kind") not in {"PR_CANDIDATE", "HUMAN_CONFIRMATION"}:
+        raise RuntimeError("P0 紧急问题不能用普通批准关闭，请先查看详情并人工处置")
+    updated = load_action_center().update(
+        alert_id, state, f"telegram:{user_id}",
+        snooze_seconds=6 * 3600 if operation == "snooze" else 0,
+        path=ACTION_QUEUE,
+    )
+    labels = {
+        "ack": "已标记查看", "approve": "已记录人工批准",
+        "snooze": "已延后 6 小时", "resolve": "已关闭", "reject": "已拒绝",
+    }
+    suffix = "\n不会自动创建 PR；仍需人工检查代码、测试并明确执行。" if operation == "approve" else ""
+    return f"{labels[operation]}：{updated['alert_id']}\n状态：{updated['status']}{suffix}"
+
+
+def daily_digest() -> str:
+    director = read_json(DIRECTOR_STATE, {})
+    curator = read_json(CURATOR_STATE, {})
+    active = director.get("active_request") if isinstance(director, dict) else None
+    artifacts = curator.get("artifacts", {}) if isinstance(curator, dict) else {}
+    counts = load_action_center().counts(ACTION_QUEUE)
+    active_id = active.get("request_id") if isinstance(active, dict) else "none"
+    return (
+        "📌 AI2AI 每日摘要\n"
+        f"人工待办：{counts['total']}（P0 {counts['P0']} / P1 {counts['P1']} / P2 {counts['P2']}）\n"
+        f"活动请求：{compact(active_id, 100)}\n"
+        f"已归档研究：{len(artifacts) if isinstance(artifacts, dict) else 0}\n"
+        f"Director 错误：{compact(director.get('last_error'), 300) or 'none'}\n"
+        "发送 /inbox 查看按优先级排序的待办。"
+    )
+
+
 def notify_events() -> None:
     """Forward new signed milestones from provenance and Director logs."""
     state = read_json(NOTIFY_STATE, {})
@@ -237,28 +399,6 @@ def notify_events() -> None:
     if not isinstance(sent, list):
         sent = []
     sent_keys = {str(item) for item in sent[-1000:]}
-
-    # A state snapshot is a fallback when a milestone was written only to
-    # Director state or a log line was missed during a restart.
-    director = read_json(DIRECTOR_STATE, {})
-    active = director.get("active_request") if isinstance(director, dict) else None
-    if isinstance(active, dict):
-        active_id = compact(active.get("request_id"), 120)
-        snapshot_key = "director_state_active|" + active_id
-        if active_id and snapshot_key not in sent_keys:
-            lines = [
-                "🔔 AI2AI 自主研究进度",
-                "阶段：Director 已有活动研究请求",
-                f"request: {active_id}",
-            ]
-            active_goal = compact(active.get("goal"), 700)
-            if active_goal:
-                lines.append(f"目标：{active_goal}")
-            lines.append("说明：后续阶段完成后会继续推送；若工作流超时，系统会自动释放等待。")
-            for chat_id in ALLOWED:
-                send(int(chat_id), "\n".join(lines))
-            sent.append(snapshot_key)
-            sent_keys.add(snapshot_key)
 
     for stream_name, stream_path in (
         ("provenance", PROVENANCE),
@@ -327,7 +467,10 @@ def notify_events() -> None:
                         if key not in sent_keys:
                             try:
                                 for chat_id in ALLOWED:
-                                    send(int(chat_id), message)
+                                    if event_name == "human_action_created":
+                                        send_action_alert(int(chat_id), row, message)
+                                    else:
+                                        send(int(chat_id), message)
                             except Exception:
                                 # Retry this exact record on the next poll.
                                 offset = line_start
@@ -338,7 +481,22 @@ def notify_events() -> None:
         except OSError:
             continue
         offsets[stream_name] = offset
-    write_json(NOTIFY_STATE, {"offsets": offsets, "sent": sent[-1000:]})
+    digest_date = str(state.get("last_daily_digest", ""))
+    now = time.gmtime()
+    today = time.strftime("%Y-%m-%d", now)
+    if now.tm_hour >= DAILY_DIGEST_UTC_HOUR and digest_date != today:
+        try:
+            message = daily_digest()
+            for chat_id in ALLOWED:
+                send(int(chat_id), message)
+            digest_date = today
+        except Exception:
+            # A failed digest remains due and is retried on the next poll.
+            pass
+    write_json(NOTIFY_STATE, {
+        "offsets": offsets, "sent": sent[-1000:],
+        "last_daily_digest": digest_date,
+    })
 def unit(unit_name: str) -> str:
     try:
         result = subprocess.run(
@@ -356,8 +514,14 @@ def status() -> str:
     active = director.get("active_request") if isinstance(director, dict) else None
     active_id = active.get("request_id") if isinstance(active, dict) else "none"
     artifacts = curator.get("artifacts", {}) if isinstance(curator, dict) else {}
+    try:
+        action_counts = load_action_center().counts(ACTION_QUEUE)
+    except Exception:
+        action_counts = {"P0": 0, "P1": 0, "P2": 0, "total": "unavailable"}
     return (
         "AI2AI 控制台状态\n"
+        f"🚨 人工待办: {action_counts['total']} "
+        f"(P0 {action_counts['P0']} / P1 {action_counts['P1']} / P2 {action_counts['P2']})\n"
         f"Director: {unit('technocore-a2a-rnd-v5.service')}\n"
         f"Reviewer: {unit('technocore-a2a.service')}\n"
         f"Curator: {unit('technocore-a2a-rnd-curator-v5.service')}\n"
@@ -565,11 +729,15 @@ def classify_natural_language(text: str) -> tuple[str, str]:
 def help_text() -> str:
     return (
         "AI2AI Telegram 控制台\n\n"
-        "/status 状态\n/brief 最新简报\n/research 研究目标\n"
+        "/status 状态\n/inbox 优先级待办\n/alert act-ID 查看待办\n"
+        "/ack act-ID 已查看\n/approve-pr act-ID 记录批准准备 PR\n"
+        "/snooze act-ID 延后 6 小时\n/close act-ID 关闭待办\n"
+        "/brief 最新简报\n/research 研究目标\n"
         "/ask 问题\n/pause 暂停\n/resume 恢复\n"
         "/draft 生成公开发帖草稿\n/approve post-ID 批准发布\n/reject post-ID 拒绝\n\n"
         "支持完全自然语言：可以直接提问、要求开始/继续研究、找 Bug、交叉验证、"
         "查看状态、暂停/恢复自主研究、生成发帖草稿；高风险写入仍需人工批准。"
+        "待办批准只记录你的决定，不会自动写 GitHub、服务器或公共房间。"
     )
 
 
@@ -600,6 +768,18 @@ def route(text: str, user_id: str) -> str:
             return help_text()
         if command == "/status":
             return status()
+        if command == "/inbox":
+            return action_inbox()
+        if command == "/alert":
+            return action_detail(argument)
+        if command == "/ack":
+            return change_action(argument, "ack", user_id)
+        if command == "/approve-pr":
+            return change_action(argument, "approve", user_id)
+        if command == "/snooze":
+            return change_action(argument, "snooze", user_id)
+        if command == "/close":
+            return change_action(argument, "resolve", user_id)
         if command == "/brief":
             return brief()
         if command == "/research":
@@ -703,6 +883,37 @@ def route(text: str, user_id: str) -> str:
 
 
 def handle(update: dict) -> None:
+    callback = update.get("callback_query")
+    if isinstance(callback, dict):
+        sender = callback.get("from") or {}
+        message = callback.get("message") or {}
+        chat = message.get("chat") or {}
+        user_id = str(sender.get("id", ""))
+        chat_id = chat.get("id")
+        query_id = callback.get("id")
+        data = str(callback.get("data", ""))
+        if user_id not in ALLOWED or chat.get("type") != "private" or chat_id is None:
+            return
+        try:
+            prefix, operation, alert_id = data.split(":", 2)
+            if prefix != "act" or operation not in {"ack", "detail", "approve", "snooze", "resolve"}:
+                raise RuntimeError("无效按钮")
+            if query_id:
+                api("answerCallbackQuery", {"callback_query_id": query_id})
+            result = action_detail(alert_id) if operation == "detail" else change_action(
+                alert_id, operation, user_id,
+            )
+            send(int(chat_id), result)
+        except Exception as exc:
+            if query_id:
+                try:
+                    api("answerCallbackQuery", {
+                        "callback_query_id": query_id,
+                        "text": safe_text(str(exc), 180), "show_alert": True,
+                    })
+                except Exception:
+                    pass
+        return
     message = update.get("message")
     if not isinstance(message, dict):
         return
@@ -736,7 +947,8 @@ def run() -> None:
         try:
             notify_events()
             updates = api("getUpdates", {
-                "offset": offset, "timeout": POLL, "allowed_updates": ["message"],
+                "offset": offset, "timeout": POLL,
+                "allowed_updates": ["message", "callback_query"],
             })
             for update in updates if isinstance(updates, list) else []:
                 if not isinstance(update, dict):

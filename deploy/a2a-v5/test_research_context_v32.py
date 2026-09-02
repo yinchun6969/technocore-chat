@@ -245,14 +245,13 @@ class Patches(unittest.TestCase):
         self.assertIn("issues/152", ns["brief"]())
         self.assertNotIn("目前还没有研究档案", ns["brief"]())
 
-    def test_progress_notification_includes_specific_subject(self):
+    def test_routine_progress_notification_is_folded_into_daily_digest(self):
         self.card()
         ctx.observe({"wf-123": {"CHALLENGE": stage("CHALLENGE", challenge="Missing executed reproduction")}}, [])
         ns = functions_only(patcher.patched_telegram(self.tg), {"event_message"}, {"research_context": ctx,
             "compact": ctx.text, "NOTIFY_LABELS": {"workflow_stage_observed": "阶段"}})
         message = ns["event_message"]({"event": "workflow_stage_observed", "workflow_id": "wf-123", "stage": "CHALLENGE"})
-        self.assertIn("issues/152", message)
-        self.assertIn("Missing executed reproduction", message)
+        self.assertIsNone(message)
 
     def test_source_excerpt_reaches_original_scout_gate(self):
         path = fixture("install-autonomous-scheduler-v2.9.sh")
