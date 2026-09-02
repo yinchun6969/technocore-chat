@@ -101,6 +101,9 @@ MAX_WORKFLOW_CONTENT_CHARS = 2600
 EVIDENCE_ALGORITHM = BUNDLE_SCHEMA
 RECEIPT_SIGNER = WORKFLOW_SIGNERS["CHALLENGE"]
 HEX_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+ACTION_ID_RE = re.compile(r"^act-[0-9a-f]{16}$")
+ACTION_PRIORITIES = {"P0", "P1", "P2"}
+ACTION_KINDS = {"CRITICAL_CONFIRMATION", "PR_CANDIDATE", "HUMAN_CONFIRMATION"}
 
 
 def _base_url(value: str) -> str:
@@ -251,6 +254,14 @@ class EvidenceRef:
 
 
 @dataclass(frozen=True)
+class HumanActionProjection:
+    alert_id: str
+    priority: str
+    kind: str
+    required: bool = True
+
+
+@dataclass(frozen=True)
 class ArtifactReceipt:
     signer_did: str
     timestamp: str
@@ -259,6 +270,7 @@ class ArtifactReceipt:
     evidence_merkle_root: str
     evidence_schema: str
     root_matches: bool
+    human_action: HumanActionProjection | None = None
 
 
 @dataclass(frozen=True)
@@ -459,6 +471,21 @@ def _artifact_receipt(row: Any) -> tuple[str, ArtifactReceipt] | None:
         or schema != BUNDLE_SCHEMA
     ):
         return None
+    action = None
+    alert_id = str(payload.get("alert_id", ""))
+    priority = str(payload.get("action_priority", ""))
+    action_kind = str(payload.get("action_kind", ""))
+    if (
+        payload.get("human_action_required") is True
+        and ACTION_ID_RE.fullmatch(alert_id)
+        and priority in ACTION_PRIORITIES
+        and action_kind in ACTION_KINDS
+    ):
+        action = HumanActionProjection(
+            alert_id=alert_id,
+            priority=priority,
+            kind=action_kind,
+        )
     return task_id, ArtifactReceipt(
         signer_did=signer,
         timestamp=str(row.get("ts", ""))[:64],
@@ -467,6 +494,7 @@ def _artifact_receipt(row: Any) -> tuple[str, ArtifactReceipt] | None:
         evidence_merkle_root=root,
         evidence_schema=schema,
         root_matches=False,
+        human_action=action,
     )
 
 
@@ -565,6 +593,7 @@ def _collect_workflows(
                 evidence_merkle_root=receipt.evidence_merkle_root,
                 evidence_schema=receipt.evidence_schema,
                 root_matches=matched,
+                human_action=receipt.human_action if matched else None,
             )
             receipt_status = "matched" if matched else ("mismatch" if root else "pending_bundle")
             conflicts += max(
@@ -1089,6 +1118,22 @@ def snapshot_from_dict(data: dict[str, Any]) -> Snapshot:
         raw_receipt = raw_workflow.get("receipt")
         receipt = None
         if isinstance(raw_receipt, dict):
+            raw_action = raw_receipt.get("human_action")
+            action = None
+            if isinstance(raw_action, dict):
+                alert_id = str(raw_action.get("alert_id", ""))
+                priority = str(raw_action.get("priority", ""))
+                kind = str(raw_action.get("kind", ""))
+                if (
+                    raw_action.get("required") is True
+                    and ACTION_ID_RE.fullmatch(alert_id)
+                    and priority in ACTION_PRIORITIES
+                    and kind in ACTION_KINDS
+                    and raw_receipt.get("root_matches") is True
+                    and raw_workflow.get("receipt_status") == "matched"
+                    and raw_receipt.get("evidence_merkle_root") == raw_workflow.get("evidence_root")
+                ):
+                    action = HumanActionProjection(alert_id, priority, kind)
             receipt = ArtifactReceipt(
                 signer_did=str(raw_receipt.get("signer_did", "")),
                 timestamp=str(raw_receipt.get("timestamp", "")),
@@ -1097,6 +1142,7 @@ def snapshot_from_dict(data: dict[str, Any]) -> Snapshot:
                 evidence_merkle_root=str(raw_receipt.get("evidence_merkle_root", "")),
                 evidence_schema=str(raw_receipt.get("evidence_schema", "")),
                 root_matches=bool(raw_receipt.get("root_matches", False)),
+                human_action=action,
             )
         workflows.append(
             WorkflowTrace(

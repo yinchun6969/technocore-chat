@@ -161,6 +161,10 @@ def test_v552_artifact_receipt_matches_only_independently_derived_public_root() 
         "artifact_sha256": "a" * 64,
         "evidence_merkle_root": root,
         "evidence_schema": "technocore.a2a/evidence-bundle-v1",
+        "human_action_required": True,
+        "alert_id": "act-0123456789abcdef",
+        "action_priority": "P1",
+        "action_kind": "PR_CANDIDATE",
     }
     receipt = {
         "seq": 6,
@@ -182,6 +186,17 @@ def test_v552_artifact_receipt_matches_only_independently_derived_public_root() 
     assert workflow.receipt_status == "matched"
     assert workflow.receipt is not None and workflow.receipt.root_matches
     assert workflow.receipt.artifact_sha256 == "a" * 64
+    assert workflow.receipt.human_action is not None
+    assert workflow.receipt.human_action.priority == "P1"
+    assert workflow.receipt.human_action.kind == "PR_CANDIDATE"
+    restored = snapshot_from_dict(
+        collect_snapshot(
+            "https://example.test",
+            workflow_rooms=("d-aizong", "d-ai2ai"),
+            fetcher=fetch,
+        ).to_dict()
+    ).workflows[0]
+    assert restored.receipt is not None and restored.receipt.human_action is not None
 
     receipt_payload["evidence_merkle_root"] = "b" * 64
     receipt["text"] = "A2A1 " + json.dumps(receipt_payload, separators=(",", ":"), sort_keys=True)
@@ -192,6 +207,7 @@ def test_v552_artifact_receipt_matches_only_independently_derived_public_root() 
     ).workflows[0]
     assert mismatched.receipt_status == "mismatch"
     assert mismatched.receipt is not None and not mismatched.receipt.root_matches
+    assert mismatched.receipt.human_action is None
 
 
 def test_evidence_merkle_root_is_deterministic_ordered_and_tamper_evident() -> None:
