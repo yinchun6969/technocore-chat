@@ -88,7 +88,7 @@ if [[ "$MODE" == audit ]]; then
 fi
 
 fetch_pinned "research_context_v32.py" "e99374699198a72b31f18e6958bbf02c248523b216d39c67a0f4b683db95589a"
-fetch_pinned "patch-research-context-v3.2.py" "6d3b83823c25f86a21f5499237c2440eee12164c848033d9bd51a4a2acada7af"
+fetch_pinned "patch-research-context-v3.2.py" "149e34478b37d53208111ac7b7815dc965e15da5799ac0c2f95f66711d025beb"
 fetch_pinned "deploy-research-context-v3.2.py" "e860399e27e9d07ad910d08c3ed78274fcd0947d40140ed6be7a083c68f92423"
 
 python3 -m py_compile \
