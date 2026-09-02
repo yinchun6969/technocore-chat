@@ -4,7 +4,7 @@ set -euo pipefail
 # Additive v3.2 installer. The commit and hashes are replaced with the
 # immutable release values before publication. No credentials are printed.
 REPO="yinchun6969/technocore-chat"
-REF="3f5dd06df0784f8f0919265e49c055a5fd042fea"
+REF="f2ec3985f3ec0fdcf797f330cdc3cb214b0a0bc0"
 BASE="https://raw.githubusercontent.com/${REPO}/${REF}/deploy/a2a-v5"
 MODE="install"
 READ_PUBLIC=0
