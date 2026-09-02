@@ -87,6 +87,28 @@ class V551RecoveryTests(unittest.TestCase):
         ]
         return ("\n" + body + "\n").join(sections) + "\n" + body
 
+    def actionable_text(self, task_id: str, root: str) -> str:
+        padding = "Verified source comparison remains read only and provenance bound. " * 12
+        return f"""# Title
+Bug: duplicate action notification after curator restart
+## Objective
+Audit {task_id} using evidence root {root}. {padding}
+## Verified Evidence
+Two independently signed stages reproduce the duplicate notification condition. {padding}
+## Cross-Validation
+Artifact hash, signer identity, and Merkle root agree across both sources. {padding}
+## Findings
+A retry race condition can emit a duplicate notification for one workflow.
+## Design Proposal
+Fix the defect with a locked deterministic upsert guard and preserve the first action ID.
+## Minimal Test Matrix
+1. Duplicate receipt creates one alert. 2. Restart creates no extra alert. 3. New receipt remains visible.
+## Open Questions
+None.
+## Provenance
+Workflow {task_id}; evidence root {root}. {padding}
+"""
+
     def test_complete_cached_workflow_survives_room_503(self):
         values = self.stages()
         self.curator.save_cache({"wf-v551-recovery": values}, {"room-x": 10})
@@ -107,6 +129,18 @@ class V551RecoveryTests(unittest.TestCase):
         self.assertTrue(value["evidence_verified"])
         self.assertEqual(value["version"], "5.5.1")
         self.assertTrue(self.curator.read_verified_receipt("wf-v551-recovery", stages))
+
+    def test_verified_pr_candidate_enters_local_action_queue_once(self):
+        task_id = "wf-v551-action-test"
+        stages = self.stages(task_id)
+        bundle = self.curator.evidence_v55.build_bundle(task_id, stages)
+        self.curator.agent.ai_call = lambda prompt: self.actionable_text(task_id, bundle["merkle_root"])
+        value = self.curator.create(task_id, stages)
+        self.assertEqual(value["human_action"]["priority"], "P1")
+        self.assertEqual(value["human_action"]["kind"], "PR_CANDIDATE")
+        self.curator.create(task_id, stages)
+        queued = self.curator.human_actions.load(self.curator.ACTION_QUEUE)
+        self.assertEqual(len(queued["actions"]), 1)
 
     def test_provider_timeout_sets_persistent_exponential_retry(self):
         stages = self.stages()

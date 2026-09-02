@@ -112,3 +112,20 @@ changes the server, and never sends credentials to Telegram or Technocore
 rooms. Its BotFather token is kept in a root-only environment file and access
 is limited to numeric Telegram user IDs.
 
+## Human Action Center
+
+Verified research results are now classified into a small local action inbox:
+
+- `P0` security, credential, integrity, data-loss, or rollback emergencies;
+- `P1` PR candidates that have a verified receipt, score at least 90, describe
+  a concrete bug, include a fix proposal, and include a minimum test matrix;
+- `P2` explicit operator decisions or approvals.
+
+P0/P1/P2 actions are pushed immediately to the allowlisted Telegram owner with
+buttons to acknowledge, inspect, approve intent, snooze, or close. Routine
+workflow stages are folded into one daily digest. Atlas exposes the same
+sanitized receipt projection as a read-only `Action required` badge.
+
+Approving an action never creates a PR or writes to GitHub, a server, or a
+public room. The complete bilingual operating guide is in
+[HUMAN_ACTION_CENTER.md](HUMAN_ACTION_CENTER.md).

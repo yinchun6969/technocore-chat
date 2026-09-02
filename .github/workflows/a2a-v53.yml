@@ -34,6 +34,8 @@ jobs:
       - name: Deterministic Evidence and Merkle unit tests
         run: |
           python3 deploy/a2a-v5/test_evidence_v55.py
+          python3 deploy/a2a-v5/test_human_action_center_v1.py
+          python3 deploy/a2a-v5/test_telegram_notifications_v53.py
 
       - name: Offline integration and E2E artifact
         run: |

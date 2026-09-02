@@ -20,7 +20,7 @@ def load_renderer():
             for target in node.targets
         ):
             wanted.append(node)
-        elif isinstance(node, ast.FunctionDef) and node.name in {"compact", "event_message"}:
+        elif isinstance(node, ast.FunctionDef) and node.name in {"compact", "safe_text", "event_message"}:
             wanted.append(node)
     namespace: dict[str, object] = {}
     exec(compile(ast.Module(body=wanted, type_ignores=[]), str(SOURCE), "exec"), namespace)
@@ -31,13 +31,26 @@ class TelegramNotificationTests(unittest.TestCase):
     def setUp(self):
         self.render = load_renderer()
 
-    def test_recovered_revision_is_notified(self):
+    def test_routine_revision_is_folded_into_daily_digest(self):
         text = self.render({
             "event": "workflow_revised_result_recovered",
             "workflow_id": "wf-test",
         })
-        self.assertIn("恢复并提交修订结果", text)
-        self.assertIn("wf-test", text)
+        self.assertIsNone(text)
+
+    def test_p1_action_has_distinct_heading_and_safety_boundary(self):
+        text = self.render({
+            "event": "human_action_created",
+            "priority": "P1",
+            "alert_id": "act-0123456789abcdef",
+            "action_kind": "PR_CANDIDATE",
+            "workflow_id": "wf-test",
+            "summary": "Bug: duplicate alert",
+            "cross_validation_score": 95,
+        })
+        self.assertIn("P1 PR 候选", text)
+        self.assertIn("act-0123456789abcdef", text)
+        self.assertIn("不会自动写 GitHub", text)
 
     def test_created_pr_contains_link_branch_and_commit(self):
         text = self.render({

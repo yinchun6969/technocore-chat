@@ -22,6 +22,7 @@ STATE_FILE = STATE / "curator.json"
 CACHE_FILE = STATE / "curator-stage-cache.json"
 LOG_FILE = STATE / "curator.log"
 LOCK_FILE = STATE / "curator.lock"
+ACTION_QUEUE = STATE / "human-actions.json"
 
 spec = importlib.util.spec_from_file_location("existing_a2a_agent", RUNTIME)
 if spec is None or spec.loader is None:
@@ -38,6 +39,15 @@ if evidence_spec is None or evidence_spec.loader is None:
     raise SystemExit("cannot load evidence_v55.py")
 evidence_v55 = importlib.util.module_from_spec(evidence_spec)
 evidence_spec.loader.exec_module(evidence_v55)
+
+action_spec = importlib.util.spec_from_file_location(
+    "technocore_human_action_v1",
+    Path(__file__).resolve().with_name("human_action_center_v1.py"),
+)
+if action_spec is None or action_spec.loader is None:
+    raise SystemExit("cannot load human_action_center_v1.py")
+human_actions = importlib.util.module_from_spec(action_spec)
+action_spec.loader.exec_module(human_actions)
 
 requests = agent.requests
 BASE = getattr(agent, "BASE", "https://technocore.chat")
@@ -485,6 +495,32 @@ def read_verified_receipt(task_id: str, stages: dict) -> dict:
     return value
 
 
+def classify_human_action(task_id: str, text: str, value: dict) -> dict | None:
+    """Classify only a deterministic, already verified artifact receipt."""
+    return human_actions.classify(task_id, text, value)
+
+
+def register_human_action(action: dict | None) -> dict | None:
+    """Persist a local action once and emit one deduplicated notification event."""
+    if not action:
+        return None
+    created, saved = human_actions.upsert(action, ACTION_QUEUE)
+    if created:
+        ledger(
+            "human_action_created",
+            workflow_id=saved["workflow_id"], alert_id=saved["alert_id"],
+            priority=saved["priority"], action_kind=saved["kind"],
+            summary=saved["summary"], evidence_hash=saved["evidence_merkle_root"],
+            cross_validation_score=saved["cross_validation_score"],
+        )
+        log(
+            "human_action_created",
+            workflow_id=saved["workflow_id"], alert_id=saved["alert_id"],
+            priority=saved["priority"], action_kind=saved["kind"],
+        )
+    return saved
+
+
 def preserve_replaced_artifacts(task_id: str, stamp: int) -> None:
     for suffix in ("md", "json"):
         path = ARTIFACTS / f"{task_id}.{suffix}"
@@ -509,12 +545,24 @@ def atomic_write(path: Path, text: str, mode: int = 0o640) -> None:
 def publish(task_id: str, value: dict) -> None:
     if not PUBLISH:
         return
-    message = agent.payload(
-        "ARTIFACT_RECEIPT", task_id,
-        artifact_sha256=value["artifact_sha256"], quality_score=value["cross_validation_score"],
-        stage_count=value["stage_count"], origin="ai2ai-rnd-v5", promotion="manual-review-required",
-        evidence_merkle_root=value["evidence_merkle_root"], evidence_schema=evidence_v55.SCHEMA,
-    )
+    fields = {
+        "artifact_sha256": value["artifact_sha256"],
+        "quality_score": value["cross_validation_score"],
+        "stage_count": value["stage_count"],
+        "origin": "ai2ai-rnd-v5",
+        "promotion": "manual-review-required",
+        "evidence_merkle_root": value["evidence_merkle_root"],
+        "evidence_schema": evidence_v55.SCHEMA,
+    }
+    action = value.get("human_action")
+    if isinstance(action, dict):
+        fields.update({
+            "human_action_required": True,
+            "alert_id": action.get("alert_id"),
+            "action_kind": action.get("kind"),
+            "action_priority": action.get("priority"),
+        })
+    message = agent.payload("ARTIFACT_RECEIPT", task_id, **fields)
     peers = agent.peers()
     room = peers.get(AI2AI_DID) or RECEIPT_ROOM
     agent.signed_post(room, message)
@@ -527,7 +575,10 @@ def create(task_id: str, stages: dict) -> dict:
     json_path = ARTIFACTS / f"{task_id}.json"
     if md_path.exists() and json_path.exists():
         try:
-            return read_verified_receipt(task_id, stages)
+            value = read_verified_receipt(task_id, stages)
+            text = md_path.read_text(encoding="utf-8")
+            register_human_action(classify_human_action(task_id, text, value))
+            return value
         except ReceiptVerificationError as exc:
             log(
                 "artifact_pair_unverified", workflow_id=task_id,
@@ -541,6 +592,9 @@ def create(task_id: str, stages: dict) -> dict:
         raise RuntimeError(f"cross-validation evidence gate failed score={score}")
     text = generate_artifact_text(task_id, stages, bundle)
     value = receipt(task_id, text, score, stages, bundle)
+    action = classify_human_action(task_id, text, value)
+    if action:
+        value["human_action"] = human_actions.public_projection(action)
     verify_receipt(task_id, stages, value, text)
     preserve_replaced_artifacts(task_id, int(time.time()))
     atomic_write(md_path, text)
@@ -550,6 +604,7 @@ def create(task_id: str, stages: dict) -> dict:
         artifact_sha256=value["artifact_sha256"], score=score,
         evidence_hash=value["evidence_merkle_root"], evidence_verified=True,
     )
+    register_human_action(action)
     try:
         publish(task_id, value)
     except Exception as exc:
@@ -586,7 +641,9 @@ def tick() -> None:
             continue
         if task_id in state.setdefault("artifacts", {}):
             try:
-                read_verified_receipt(task_id, stages)
+                value = read_verified_receipt(task_id, stages)
+                text = (ARTIFACTS / f"{task_id}.md").read_text(encoding="utf-8")
+                register_human_action(classify_human_action(task_id, text, value))
                 sagas[task_id] = evidence_v55.saga_checkpoint(task_id, stages, artifact_verified=True)
                 retries.pop(task_id, None)
                 continue
