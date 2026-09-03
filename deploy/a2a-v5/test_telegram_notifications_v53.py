@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import types
 import unittest
 from pathlib import Path
 
@@ -22,7 +23,9 @@ def load_renderer():
             wanted.append(node)
         elif isinstance(node, ast.FunctionDef) and node.name in {"compact", "safe_text", "event_message"}:
             wanted.append(node)
-    namespace: dict[str, object] = {}
+    namespace: dict[str, object] = {
+        "research_context": types.SimpleNamespace(lookup_event=lambda _row: {}),
+    }
     exec(compile(ast.Module(body=wanted, type_ignores=[]), str(SOURCE), "exec"), namespace)
     return namespace["event_message"]
 
