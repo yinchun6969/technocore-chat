@@ -9,16 +9,17 @@
 64 位 Merkle root、64 位 artifact SHA-256 和交叉验证分数，再按以下规则分类：
 
 - `P0`：私钥/凭据泄露、签名或认证绕过、数据丢失、静默损坏、回滚假成功、远程代码执行；
-- `P1`：分数至少 90，并同时包含明确 Bug、修复方案和最小测试矩阵；
-- `P2`：研究结论明确要求人工确认、批准或方案取舍。
+- `P1`：分数至少 95，且必须是影响核心服务或跨节点签名工作流的高严重 Bug，
+  同时包含明确缺陷、修复方案和最小测试矩阵；
+- 普通 Bug、UI/文案、轻微性能问题、一般优化和方案取舍不进入人工待办。
 
-P0/P1/P2 会立即发送 Telegram 警报，并提供“已查看”“查看详情”“批准准备 PR”
+只有 P0/P1 会立即发送 Telegram 警报，并提供“已查看”“查看详情”“批准准备 PR”
 “6 小时后”“关闭”按钮。普通工作流阶段不再逐条通知，每天只发送一次摘要。
 
 常用命令：
 
 ```text
-/inbox                       按 P0、P1、P2 查看待办
+/inbox                       查看 P0/P1 高严重待办
 /alert act-ID                查看证据摘要
 /ack act-ID                  标记已查看
 /approve-pr act-ID           只记录批准准备 PR 的人工意图
@@ -37,7 +38,7 @@ Telegram 的批准不会自动创建 PR、修改服务器、公开发帖或上�
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/yinchun6969/technocore-chat/f068e67caf6b89007eb7de0814878007b19fdb53/deploy/a2a-v5/install-human-action-center-v1.sh \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/f810b1da78759b3784ffdd68477170a525268905/deploy/a2a-v5/install-human-action-center-v1.sh \
   -o /root/install-human-action-center-v1.sh
 bash /root/install-human-action-center-v1.sh --check
 bash /root/install-human-action-center-v1.sh --apply
@@ -56,10 +57,12 @@ requires a verified receipt, valid 64-character Merkle and artifact hashes,
 and then assigns:
 
 - `P0` for credential, signing, integrity, data-loss, rollback, or RCE emergencies;
-- `P1` for a score of 90 or higher plus a concrete bug, fix proposal, and test matrix;
-- `P2` for an explicit operator decision or approval.
+- `P1` for a score of 95 or higher plus a verified high-impact failure of a core service
+  or cross-node signed workflow, a concrete fix proposal, and a test matrix;
+- minor bugs, UI/copy issues, light performance issues, routine improvements and design
+  choices do not enter the human inbox.
 
-P0/P1/P2 actions are sent immediately to the allowlisted Telegram owner with
+Only P0/P1 actions are sent immediately to the allowlisted Telegram owner with
 acknowledge, detail, approve-intent, six-hour snooze, and close controls.
 Routine stages are summarized once per day. The local queue is not published;
 Atlas receives only a sanitized projection from the signed artifact receipt.
@@ -74,7 +77,7 @@ installer from a pinned release commit. Run the read-only check before apply:
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/yinchun6969/technocore-chat/f068e67caf6b89007eb7de0814878007b19fdb53/deploy/a2a-v5/install-human-action-center-v1.sh \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/f810b1da78759b3784ffdd68477170a525268905/deploy/a2a-v5/install-human-action-center-v1.sh \
   -o /root/install-human-action-center-v1.sh
 bash /root/install-human-action-center-v1.sh --check
 bash /root/install-human-action-center-v1.sh --apply
