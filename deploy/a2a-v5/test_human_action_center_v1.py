@@ -53,12 +53,12 @@ Bound to {TASK} and {ROOT}.
 
 
 class ClassificationTests(unittest.TestCase):
-    def test_verified_bug_with_fix_and_tests_is_p1(self) -> None:
+    def test_verified_high_impact_bug_with_fix_and_tests_is_p1(self) -> None:
         text = artifact(
-            "Bug: duplicate workflow alert",
-            "A retry race condition can emit the same alert twice.",
+            "Bug: signed workflow cannot complete",
+            "A reproducible retry race condition leaves the cross-node workflow blocked.",
             "Fix with an atomic upsert guard and preserve the first action ID.",
-            "1. Duplicate event is deduplicated.\n2. New event creates one action.\n3. Restart keeps state.",
+            "1. Reproduce the blocked workflow.\n2. Verify the fix.\n3. Restart keeps state.",
         )
         value = actions.classify(TASK, text, receipt())
         self.assertIsNotNone(value)
@@ -77,7 +77,15 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(value["priority"], "P0")
         self.assertEqual(value["kind"], "CRITICAL_CONFIRMATION")
 
-    def test_human_confirmation_is_p2(self) -> None:
+    def test_minor_bug_and_routine_human_choice_are_not_reported(self) -> None:
+        minor = artifact(
+            "Bug: duplicate workflow alert",
+            "A retry can emit a harmless duplicate display alert.",
+            "Fix with an atomic upsert guard.",
+            "1. Duplicate event is deduplicated.\n2. New event creates one action.\n3. Restart keeps state.",
+        )
+        self.assertIsNone(actions.classify(TASK, minor, receipt()))
+
         text = artifact(
             "Release policy choice",
             "The evidence supports two safe options and requires approval.",
@@ -85,9 +93,16 @@ class ClassificationTests(unittest.TestCase):
             "1. Default remains read only.\n2. Approval is recorded.\n3. No external write is executed.",
             "Needs confirmation from the repository owner.",
         )
-        value = actions.classify(TASK, text, receipt(score=88))
-        self.assertEqual(value["priority"], "P2")
-        self.assertEqual(value["kind"], "HUMAN_CONFIRMATION")
+        self.assertIsNone(actions.classify(TASK, text, receipt(score=100)))
+
+    def test_high_impact_bug_below_95_is_not_reported(self) -> None:
+        text = artifact(
+            "Bug: cross-node workflow blocked",
+            "A persistent failure means the signed workflow cannot complete.",
+            "Fix with validation and preserve the last good state.",
+            "1. Reproduce failure.\n2. Verify recovery.\n3. Restart remains safe.",
+        )
+        self.assertIsNone(actions.classify(TASK, text, receipt(score=94)))
 
     def test_unverified_or_weak_result_is_not_actionable(self) -> None:
         text = artifact("General notes", "No issue found.", "Observe only.", "No tests proposed.")
@@ -102,9 +117,9 @@ class QueueTests(unittest.TestCase):
         self.action = actions.classify(
             TASK,
             artifact(
-                "Bug: duplicate alert", "A retry failure duplicates alerts.",
+                "Bug: cross-node workflow blocked", "A persistent failure blocks the core workflow.",
                 "Fix with an atomic guard and validate state.",
-                "1. Duplicate is ignored.\n2. Restart is safe.\n3. New alert remains visible.",
+                "1. Reproduce the block.\n2. Restart is safe.\n3. Recovery remains visible.",
             ),
             receipt(),
         )
@@ -136,6 +151,20 @@ class QueueTests(unittest.TestCase):
         self.assertNotIn("summary", projection)
         self.assertNotIn("history", projection)
         self.assertNotIn("policy", projection)
+
+    def test_legacy_p1_and_p2_are_hidden_without_deleting_history(self) -> None:
+        actions.upsert(self.action, self.path)
+        value = actions.load(self.path)
+        current = value["actions"][self.action["alert_id"]]
+        current["decision_basis"] = "deterministic-markers+verified-artifact"
+        legacy_p2 = dict(current)
+        legacy_p2["alert_id"] = "act-" + "c" * 16
+        legacy_p2["priority"] = "P2"
+        value["actions"][legacy_p2["alert_id"]] = legacy_p2
+        actions._write_unlocked(self.path, value)
+
+        self.assertEqual(actions.active(self.path), [])
+        self.assertEqual(len(actions.load(self.path)["actions"]), 2)
 
 
 if __name__ == "__main__":
