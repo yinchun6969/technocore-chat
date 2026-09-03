@@ -90,19 +90,19 @@ class V551RecoveryTests(unittest.TestCase):
     def actionable_text(self, task_id: str, root: str) -> str:
         padding = "Verified source comparison remains read only and provenance bound. " * 12
         return f"""# Title
-Bug: duplicate action notification after curator restart
+Bug: persistent curator failure blocks cross-node workflow
 ## Objective
 Audit {task_id} using evidence root {root}. {padding}
 ## Verified Evidence
-Two independently signed stages reproduce the duplicate notification condition. {padding}
+Two independently signed stages reproduce the blocked workflow condition. {padding}
 ## Cross-Validation
 Artifact hash, signer identity, and Merkle root agree across both sources. {padding}
 ## Findings
-A retry race condition can emit a duplicate notification for one workflow.
+A retry race condition causes a persistent failure: the cross-node workflow is blocked and cannot complete.
 ## Design Proposal
-Fix the defect with a locked deterministic upsert guard and preserve the first action ID.
+Fix the defect with a locked deterministic recovery guard and preserve the last signed result.
 ## Minimal Test Matrix
-1. Duplicate receipt creates one alert. 2. Restart creates no extra alert. 3. New receipt remains visible.
+1. Reproduce the workflow block. 2. Restart recovers the signed result. 3. The workflow completes once.
 ## Open Questions
 None.
 ## Provenance
