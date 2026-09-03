@@ -37,7 +37,7 @@ Telegram 的批准不会自动创建 PR、修改服务器、公开发帖或上�
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/yinchun6969/technocore-chat/a5eb924c9ddfbdc1d662d247b13f330f3b4bea85/deploy/a2a-v5/install-human-action-center-v1.sh \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/f068e67caf6b89007eb7de0814878007b19fdb53/deploy/a2a-v5/install-human-action-center-v1.sh \
   -o /root/install-human-action-center-v1.sh
 bash /root/install-human-action-center-v1.sh --check
 bash /root/install-human-action-center-v1.sh --apply
@@ -74,7 +74,7 @@ installer from a pinned release commit. Run the read-only check before apply:
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/yinchun6969/technocore-chat/a5eb924c9ddfbdc1d662d247b13f330f3b4bea85/deploy/a2a-v5/install-human-action-center-v1.sh \
+  https://raw.githubusercontent.com/yinchun6969/technocore-chat/f068e67caf6b89007eb7de0814878007b19fdb53/deploy/a2a-v5/install-human-action-center-v1.sh \
   -o /root/install-human-action-center-v1.sh
 bash /root/install-human-action-center-v1.sh --check
 bash /root/install-human-action-center-v1.sh --apply
