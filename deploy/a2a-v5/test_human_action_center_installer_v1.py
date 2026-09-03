@@ -104,6 +104,13 @@ class HumanActionCenterInstallerTests(unittest.TestCase):
         ):
             self.assertIn(marker, self.source)
 
+    def test_alert_policy_is_high_severity_only(self) -> None:
+        self.assertIn("verified-high-severity-v2", self.source)
+        self.assertIn(
+            "alerts=P0/P1-high-severity-only;minor=ignored;legacy-P1-P2=hidden-preserved",
+            self.source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
