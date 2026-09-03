@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION="5.5.3-action-center.2"
-SOURCE_REF="83d4a740f8e04c76df977359252dc1a97448dec3"
+VERSION="5.5.3-action-center.3"
+SOURCE_REF="c62c1868780a454a58b4f3829c62088ed68318c7"
 SOURCE_BASE="https://raw.githubusercontent.com/yinchun6969/technocore-chat/$SOURCE_REF/deploy/a2a-v5"
 ROOT="/opt/technocore-a2a"
 RND="$ROOT/rnd-v5"
@@ -20,13 +20,13 @@ MODE="check"
 
 declare -A HASHES=(
   [autonomous-curator-v5.py]="2042230cf6c72e75eafd8d163b2f972753053d3a0de49ace0a5aa08f3cfc6576"
-  [human_action_center_v1.py]="85d3a0f5a9f43ff1b2d4e498fd0a7fa98af52923ec5fb23af383d7aff2e2bb82"
+  [human_action_center_v1.py]="68319b407cc213b20ad747ef815a4bd0d01f40f66779ac2fd28f810d3dbd5035"
   [telegram-control-v1.py]="a8fb584e4d1b7e303e7eaed1a8528384b1a53d2edf312d73ee7ec188d043af30"
   [research_context_v32.py]="e99374699198a72b31f18e6958bbf02c248523b216d39c67a0f4b683db95589a"
   [patch-research-context-v3.2.py]="149e34478b37d53208111ac7b7815dc965e15da5799ac0c2f95f66711d025beb"
   [patch-verified-brief-v5.5.1.py]="770909c5646d47086b142a52f802711eaef158b4facc60a15a3766d771638294"
   [compose-human-action-telegram-v1.py]="0c8e70d11fb50b9f99d14d0dad8219706376a7536cf2f402668022485689597e"
-  [test_human_action_center_v1.py]="dd9c249d54d42c28b256ed698fed012ca3ee121d50a50ee78875f11f89e51391"
+  [test_human_action_center_v1.py]="0c9ee6422bcc881fcd6bbfc64a055f211924592eca5c779e48b7b5e8e8468ddc"
   [test_telegram_notifications_v53.py]="dd2e1eae17059c9e2a84a02dd37de525db641dd313f4065417df14211844dc37"
 )
 
@@ -74,11 +74,12 @@ mv "$stage/telegram-final.py" "$stage/telegram-control-v1.py"
 grep -Fq 'def action_inbox()' "$stage/telegram-control-v1.py" || die "action inbox missing"
 grep -Fq 'human_action_created' "$stage/autonomous-curator-v5.py" || die "Curator action projection missing"
 grep -Fq 'auto_pr": False' "$stage/human_action_center_v1.py" || die "automatic PR boundary missing"
+grep -Fq 'verified-high-severity-v2' "$stage/human_action_center_v1.py" || die "high-severity policy missing"
 
 echo "A2A_HUMAN_ACTION_V1_PREFLIGHT=PASS"
 echo "version=$VERSION"
 echo "source_ref=$SOURCE_REF"
-echo "alerts=P0/P1/P2-immediate;routine=daily-digest"
+echo "alerts=P0/P1-high-severity-only;minor=ignored;legacy-P1-P2=hidden-preserved"
 echo "authority=record-human-intent-only;auto-pr=false;server-write=false;public-post=false"
 [[ "$MODE" == apply ]] || { echo "CHECK_ONLY: no installed files, services or live state changed"; exit 0; }
 
