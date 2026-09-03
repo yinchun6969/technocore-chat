@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION="5.5.3-action-center.1"
-SOURCE_REF="f2ec3985f3ec0fdcf797f330cdc3cb214b0a0bc0"
+VERSION="5.5.3-action-center.2"
+SOURCE_REF="83d4a740f8e04c76df977359252dc1a97448dec3"
 SOURCE_BASE="https://raw.githubusercontent.com/yinchun6969/technocore-chat/$SOURCE_REF/deploy/a2a-v5"
 ROOT="/opt/technocore-a2a"
 RND="$ROOT/rnd-v5"
@@ -27,7 +27,7 @@ declare -A HASHES=(
   [patch-verified-brief-v5.5.1.py]="770909c5646d47086b142a52f802711eaef158b4facc60a15a3766d771638294"
   [compose-human-action-telegram-v1.py]="0c8e70d11fb50b9f99d14d0dad8219706376a7536cf2f402668022485689597e"
   [test_human_action_center_v1.py]="dd9c249d54d42c28b256ed698fed012ca3ee121d50a50ee78875f11f89e51391"
-  [test_telegram_notifications_v53.py]="01e4662b4026f5121fb90d230345a9f73bd3b6e58b0ed248da6c29f203caae03"
+  [test_telegram_notifications_v53.py]="dd2e1eae17059c9e2a84a02dd37de525db641dd313f4065417df14211844dc37"
 )
 
 die() { echo "ERROR: $*" >&2; exit 1; }
