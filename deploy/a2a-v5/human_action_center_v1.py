@@ -14,6 +14,7 @@ from pathlib import Path
 
 SCHEMA = "technocore.a2a/human-action-v1"
 QUEUE_SCHEMA = "technocore.a2a/human-action-queue-v1"
+DECISION_BASIS = "verified-high-severity-v2"
 DEFAULT_QUEUE = Path("/opt/technocore-a2a/rnd-v5-state/human-actions.json")
 ACTIVE_STATES = {"pending", "acknowledged", "snoozed", "approved"}
 FINAL_STATES = {"resolved", "rejected"}
@@ -41,14 +42,18 @@ BUG_MARKERS = (
     "regression", "race condition", "rollback", "漏洞", "缺陷", "错误", "失败",
     "回归", "竞争条件", "回滚",
 )
+HIGH_IMPACT_MARKERS = (
+    "service unavailable", "service outage", "workflow blocked", "workflow stalls",
+    "cannot complete", "unable to complete", "signed result lost", "incorrect signed result",
+    "duplicate signed result", "persistent failure", "security boundary", "unauthorized access",
+    "privilege escalation", "core workflow", "all agents", "cross-node workflow",
+    "服务不可用", "服务中断", "工作流阻塞", "工作流卡死", "无法完成", "签名结果丢失",
+    "签名结果错误", "重复签名结果", "持续失败", "安全边界", "未授权访问", "权限提升",
+    "核心工作流", "全部代理", "跨节点工作流",
+)
 FIX_MARKERS = (
     "fix", "patch", "change", "guard", "validate", "reject", "preserve", "restore",
     "修复", "补丁", "修改", "校验", "拒绝", "保留", "恢复", "建议",
-)
-HUMAN_MARKERS = (
-    "human decision", "manual decision", "manual approval", "requires approval",
-    "operator decision", "needs confirmation", "人工决定", "人工确认", "需要确认",
-    "需要批准", "等待批准", "需要人工", "方案取舍",
 )
 
 
@@ -96,15 +101,18 @@ def classify(task_id: str, artifact: str, receipt: dict) -> dict | None:
     findings = _section(artifact, "## Findings")
     proposal = _section(artifact, "## Design Proposal")
     tests = _section(artifact, "## Minimal Test Matrix")
-    questions = _section(artifact, "## Open Questions")
     finding_scope = title + " " + findings
 
     if _has(finding_scope, P0_MARKERS):
         kind, priority = "CRITICAL_CONFIRMATION", "P0"
-    elif score >= 90 and _has(finding_scope, BUG_MARKERS) and _has(proposal, FIX_MARKERS) and len(tests) >= 40:
+    elif (
+        score >= 95
+        and _has(finding_scope, BUG_MARKERS)
+        and _has(finding_scope, HIGH_IMPACT_MARKERS)
+        and _has(proposal, FIX_MARKERS)
+        and len(tests) >= 40
+    ):
         kind, priority = "PR_CANDIDATE", "P1"
-    elif _has(findings + " " + questions, HUMAN_MARKERS):
-        kind, priority = "HUMAN_CONFIRMATION", "P2"
     else:
         return None
 
@@ -124,7 +132,7 @@ def classify(task_id: str, artifact: str, receipt: dict) -> dict | None:
         "artifact_sha256": artifact_sha,
         "cross_validation_score": score,
         "human_action_required": True,
-        "decision_basis": "deterministic-markers+verified-artifact",
+        "decision_basis": DECISION_BASIS,
         "created_at": now,
         "updated_at": now,
         "snoozed_until": 0,
@@ -229,6 +237,10 @@ def active(path: Path = DEFAULT_QUEUE, *, include_snoozed: bool = False) -> list
     rows = []
     for action in load(path).get("actions", {}).values():
         if not isinstance(action, dict) or action.get("status") not in ACTIVE_STATES:
+            continue
+        # Preserve history, but hide alerts created by the former broad P1/P2
+        # policy. P0 emergencies remain visible across policy upgrades.
+        if action.get("priority") != "P0" and action.get("decision_basis") != DECISION_BASIS:
             continue
         if not include_snoozed and int(action.get("snoozed_until", 0) or 0) > now:
             continue
