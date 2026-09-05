@@ -1,5 +1,13 @@
 # Research / alert integrity repair v5.5.4
 
+Daily-cap revision: the old Director used `number("RND_V5_MAX_DAILY", 1, 8)`
+even when systemd supplied 12. This silently stopped selection at eight tasks.
+The repair validates that call site and changes its upper bound to 12, retaining
+lower configured limits and all daily counts. A regression executes the actual
+call expression with setting 12: the old source returns 8, the repaired source
+returns 12; eight completed dispatches no longer exhaust that configured cap.
+Unknown limit layouts fail before installation rather than being overwritten.
+
 Brief composition revision: the v5.5.1 verified-brief patch prioritised the last
 artifact over the current card and described signed content as verified research.
 The repair now replaces `brief()` after composing all context changes. It shows
