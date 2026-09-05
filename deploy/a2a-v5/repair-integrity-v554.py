@@ -60,8 +60,42 @@ def telegram(source):
         source = patch.replace_once(source, anchor, replacement)
     source = source.replace("交叉验证：", "文本检查分（非漏洞置信度）：")
     source = source.replace("🔔 AI2AI 自主研究进度", "🔧 AI2AI 运行状态（非项目漏洞）")
+    source = patch.replace_function(source, "brief", BRIEF)
     ast.parse(source)
     return source
+
+
+BRIEF = r"""
+def brief() -> str:
+    state = read_json(DIRECTOR_STATE, {})
+    state = state if isinstance(state, dict) else {}
+    card = research_context.current(state)
+    active = state.get("active_request")
+    lines = ["研究状态（不等于漏洞已验证）"]
+    if card:
+        lines.append(research_context.render(card, detailed=True))
+    elif isinstance(active, dict) and active.get("request_id"):
+        lines.append("当前任务尚无对应研究卡片；不能用旧档案替代。")
+        lines.append("request: " + compact(active.get("request_id"), 120))
+        lines.append("目标：" + compact(active.get("goal"), 400))
+    else:
+        lines.append("尚无可展示的源码研究卡片。")
+    if state.get("paused"):
+        lines.append("调度状态：已暂停")
+    if state.get("research_wait_reason"):
+        lines.append("选题状态：等待新的有来源候选；未生成虚构任务。")
+    path, artifact = latest()
+    if path is not None:
+        related = bool(card and path.stem in card.get("workflow_ids", []))
+        lines.append("本研究关联档案：" if related else "历史档案（不作为当前任务进度）：")
+        lines.append("workflow: " + path.stem)
+        lines.append("签名与哈希校验不等于独立复现；文本检查分不作为漏洞置信度。")
+        # Keep the existing latest()/signature gate; never infer new progress
+        # from an unrelated artifact merely because it has a recent mtime.
+        if related:
+            lines.append(safe_text(artifact, 600))
+    return safe_text("\n".join(lines), 3800)
+"""
 
 
 ACTION_GUARD = r"""
