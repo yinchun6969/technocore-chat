@@ -26,6 +26,27 @@ def director(source):
         source = wire.patch_director(source)
     patch = load("context_patch", "patch-research-context-v3.2.py")
     source = patch.patched_director(source)
+    # Existing systemd configuration allows 12/day, but the old call-site
+    # silently clamped that to 8. Preserve the configured value and counters.
+    daily_calls = [
+        n
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "number"
+        and n.args
+        and isinstance(n.args[0], ast.Constant)
+        and n.args[0].value == "RND_V5_MAX_DAILY"
+    ]
+    if len(daily_calls) != 1 or len(daily_calls[0].args) != 3:
+        raise ValueError("unsupported daily limit layout")
+    ceiling = daily_calls[0].args[2]
+    if not isinstance(ceiling, ast.Constant) or ceiling.value not in (8, 12):
+        raise ValueError("unsupported daily limit ceiling")
+    if ceiling.value == 8:
+        source = patch.replace_once(
+            source, 'number("RND_V5_MAX_DAILY", 1, 8)', 'number("RND_V5_MAX_DAILY", 1, 12)'
+        )
     for marker in (
         "research_context.make_card",
         "research_context.wire_goal",
