@@ -9,8 +9,14 @@ esac
 TC_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$TC_DIR"
 sha256sum -c integrity-v554.sha256
-echo 'OFFLINE SELF TEST: following service/rollback messages refer ONLY to temporary fixtures'
-python3 -B -m unittest -q test_integrity_v554.py
+TC_TEST_LOG="$TC_DIR/offline-self-test.log"
+if python3 -B -m unittest -q test_integrity_v554.py >"$TC_TEST_LOG" 2>&1; then
+  echo 'OFFLINE_SELF_TEST=PASS; production installation has not started'
+else
+  cat "$TC_TEST_LOG"
+  echo 'OFFLINE_SELF_TEST=FAIL; no production changes' >&2
+  exit 1
+fi
 python3 -B - "$TC_DIR" <<'PY'
 import importlib.util
 import re
