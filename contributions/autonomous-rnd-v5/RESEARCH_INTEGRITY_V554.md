@@ -1,5 +1,14 @@
 # Research / alert integrity repair v5.5.4
 
+Compatibility revision: when the Director lacks the v3.1 room outbox,
+compose the validated Director-only room transformer before the context patch.
+Both are compiled before any service changes and committed in one transaction.
+Do not install or replace agent.py to satisfy this Director dependency. The
+pre-v3.1 fixture comes from commit 0c49098 of this repository. Tests cover its
+upgrade, repeat install and rollback as well as the v3.1 layout. Unsupported
+layouts still fail closed. Offline fixture logs are now saved separately so
+their mock installation messages cannot be mistaken for production success.
+
 This additive repair targets AI2AI installations already running action-center.3.
 The observed Director had no research-context patch: all five recent goals selected
 historical workflow labels, while artifacts explicitly lacked independent evidence.
