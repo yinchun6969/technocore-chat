@@ -3,6 +3,7 @@
 import ast
 import hashlib
 import importlib.util
+import itertools
 import tempfile
 import types
 import unittest
@@ -68,6 +69,17 @@ class Integrity(unittest.TestCase):
             value = transform((HERE / filename).read_text())
             self.assertEqual(transform(value), value)
             compile(value, filename, "exec")
+
+    def test_pre_v31_director_prerequisite_composition(self):
+        source = (HERE / "fixtures/director-pre-v31.txt").read_text()
+        self.assertNotIn("def flush_discussion_posts_v31(", source)
+        result = repair.director(source)
+        self.assertIn("def flush_discussion_posts_v31(", result)
+        self.assertIn("research_context.make_card", result)
+        self.assertEqual(repair.director(result), result)
+        compile(result, "legacy-director", "exec")
+        with self.assertRaises(ValueError):
+            repair.director(source.replace("def discussion_post(", "def unsupported_post("))
 
     def test_content_binding(self):
         self.assertIsNone(
@@ -143,7 +155,7 @@ class Integrity(unittest.TestCase):
                 if self.fail:
                     raise RuntimeError("simulated import failure")
 
-        for failure in (False, True):
+        for legacy, failure in itertools.product((False, True), repeat=2):
             with tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 originals = {}
@@ -155,7 +167,12 @@ class Integrity(unittest.TestCase):
                         "telegram-control-v1.py",
                         "human_action_center_v1.py",
                     }:
-                        target.write_bytes((HERE / path.name).read_bytes())
+                        fixture = (
+                            "fixtures/director-pre-v31.txt"
+                            if legacy and path.name == "autonomous-rnd-v5.py"
+                            else path.name
+                        )
+                        target.write_bytes((HERE / fixture).read_bytes())
                         originals[target] = target.read_bytes()
                 state = root / "opt/technocore-a2a/rnd-v5-state/director.json"
                 state.parent.mkdir(parents=True)
