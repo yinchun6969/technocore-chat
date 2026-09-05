@@ -90,6 +90,48 @@ class Integrity(unittest.TestCase):
             )
         )
 
+    def test_brief_on_composed_verified_controller(self):
+        context = load("patch-research-context-v3.2.py")
+        verified = load("patch-verified-brief-v5.5.1.py")
+        original = verified.patch(
+            context.patched_telegram((HERE / "telegram-control-v1.py").read_text())
+        )
+        result = repair.telegram(original)
+
+        def function(source, name):
+            return next(
+                n
+                for n in ast.parse(source).body
+                if isinstance(n, ast.FunctionDef) and n.name == name
+            )
+
+        for name in ("latest", "_verified_artifact_pair"):
+            self.assertEqual(ast.dump(function(original, name)), ast.dump(function(result, name)))
+        self.assertEqual(repair.telegram(result), result)
+        state = {"active_request": {"request_id": "sched-new", "goal": "new source"}}
+        card = {"workflow_ids": ["wf-new"]}
+        ns: dict[str, Any] = {
+            "DIRECTOR_STATE": "unused",
+            "read_json": lambda *args: state,
+            "research_context": types.SimpleNamespace(
+                current=lambda _: card,
+                render=lambda *args, **kwargs: "候选来源：https://github.com/example/repo/issues/1",
+            ),
+            "latest": lambda: (Path("wf-old.md"), "OLD_UNRELATED_ARTIFACT"),
+        }
+        nodes = [function(result, name) for name in ("brief", "compact", "safe_text")]
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), "brief-test", "exec"), ns)
+        message = ns["brief"]()
+        self.assertIn("候选来源", message)
+        self.assertIn("历史档案", message)
+        self.assertNotIn("OLD_UNRELATED_ARTIFACT", message)
+        self.assertNotIn("最新已验证研究简报", message)
+        card.clear()
+        self.assertIn("当前任务尚无对应研究卡片", ns["brief"]())
+        state.clear()
+        state["research_wait_reason"] = "no source"
+        self.assertIn("等待新的有来源候选", ns["brief"]())
+
     def test_classification_queue_and_telegram_render(self):
         source = repair.telegram((HERE / "telegram-control-v1.py").read_text())
         tree = ast.parse(source)
