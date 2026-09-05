@@ -1,5 +1,14 @@
 # Research / alert integrity repair v5.5.4
 
+Brief composition revision: the v5.5.1 verified-brief patch prioritised the last
+artifact over the current card and described signed content as verified research.
+The repair now replaces `brief()` after composing all context changes. It shows
+the current card/wait state first and labels unrelated archives as history,
+without forwarding their body as current progress. The existing `latest()` and
+`_verified_artifact_pair()` verification functions remain byte-structure identical.
+Regression tests exercise the real composed v5.5.1 controller, not only the base
+Telegram file, with active-card, missing-card and no-source cases.
+
 Compatibility revision: when the Director lacks the v3.1 room outbox,
 compose the validated Director-only room transformer before the context patch.
 Both are compiled before any service changes and committed in one transaction.
