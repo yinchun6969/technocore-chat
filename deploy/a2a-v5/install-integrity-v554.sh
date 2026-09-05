@@ -34,8 +34,13 @@ base = Path('/opt/technocore-a2a/rnd-v5')
 for name, transform in [('autonomous-rnd-v5.py', repair.director),
                         ('telegram-control-v1.py', repair.telegram),
                         ('human_action_center_v1.py', repair.actions)]:
-    compile(transform((base / name).read_text()), name, 'exec')
+    original = (base / name).read_text()
+    compile(transform(original), name, 'exec')
+    if name == 'autonomous-rnd-v5.py':
+        match = re.search(r'number\("RND_V5_MAX_DAILY", 1, (8|12)\)', original)
+        print('DAILY_LIMIT_CEILING_BEFORE=' + (match.group(1) if match else 'unknown'))
 print('INTEGRITY_V554_PREFLIGHT=PASS; no production changes yet')
+print('DAILY_LIMIT_CEILING=12; configured lower limits and historical counters preserved')
 PY
 if [[ "$TC_MODE" == --install ]]; then
   [[ "$(id -u)" == 0 ]] || { echo 'Run install as root on AI2AI' >&2; exit 2; }
