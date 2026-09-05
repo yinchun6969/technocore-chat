@@ -81,6 +81,31 @@ class Integrity(unittest.TestCase):
         with self.assertRaises(ValueError):
             repair.director(source.replace("def discussion_post(", "def unsupported_post("))
 
+    def test_configured_daily_twelve_is_not_clamped_to_eight(self):
+        source = (HERE / "fixtures/director-pre-v31.txt").read_text()
+        result = repair.director(source)
+        for code, expected in ((source, 8), (result, 12)):
+            tree = ast.parse(code)
+            number = next(
+                n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "number"
+            )
+            call = next(
+                n
+                for n in ast.walk(tree)
+                if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name)
+                and n.func.id == "number"
+                and n.args
+                and isinstance(n.args[0], ast.Constant)
+                and n.args[0].value == "RND_V5_MAX_DAILY"
+            )
+            ns: dict[str, Any] = {"setting": lambda name: "12"}
+            exec(compile(ast.Module(body=[number], type_ignores=[]), "number", "exec"), ns)
+            effective = eval(compile(ast.Expression(body=call), "daily-gate", "eval"), ns)
+            self.assertEqual(effective, expected)
+            self.assertEqual(8 >= effective, code == source)
+        self.assertEqual(repair.director(result), result)
+
     def test_content_binding(self):
         self.assertIsNone(
             self.actions.classify(
