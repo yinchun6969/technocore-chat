@@ -18,6 +18,12 @@ def load(name, filename):
 
 
 def director(source):
+    # The context patch depends on the Director room outbox, not on replacing
+    # agent.py. Compose this missing prerequisite into the same transaction.
+    # Its transformer validates the old layout and preserves other functions.
+    if "def flush_discussion_posts_v31(" not in source:
+        wire = load("director_room_patch", "repair-wire-room-v3.1.py")
+        source = wire.patch_director(source)
     patch = load("context_patch", "patch-research-context-v3.2.py")
     source = patch.patched_director(source)
     for marker in (
